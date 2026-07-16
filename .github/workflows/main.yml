@@ -23,9 +23,19 @@ jobs:
 
       - name: Build with Theos
         run: |
-          MAKEFILE_PATH=$(find . -name "Makefile" | head -n 1)
-          MAKEFILE_DIR=$(dirname "$MAKEFILE_PATH")
-          cd "$MAKEFILE_DIR"
+          echo "--- GitHub එකට Upload වෙලා තියෙන ෆයිල්ස් ---"
+          ls -laR
+          echo "---------------------------------------------"
+          
+          MAKEFILE_PATH=$(find . -iname "makefile" | head -n 1)
+          
+          if [ -z "$MAKEFILE_PATH" ]; then
+            echo "Error: Makefile එක හොයාගන්න නෑ! ඔයා ඒක GitHub එකට Upload කරලා නැද්ද බලන්න."
+            exit 1
+          fi
+          
+          echo "Makefile එක හම්බවුණා මෙතනින්: $MAKEFILE_PATH"
+          cd "$(dirname "$MAKEFILE_PATH")"
           make FINALPACKAGE=1
 
       - name: Upload Artifact
