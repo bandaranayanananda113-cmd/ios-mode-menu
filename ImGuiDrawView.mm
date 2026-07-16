@@ -18,12 +18,6 @@
 #import "5Toubun/NakanoItsuki.h"
 #import "5Toubun/dobby.h"
 
-// ==========================================
-// KEYAUTH C++ HEADER IMPORT
-// ==========================================
-// ඔයාගේ KeyAuth හෙඩර් ෆයිල් එකේ නම keyauth.hpp නෙමෙයි නම්, ඒ නමට වෙනස් කරන්න.
-#include "KeyAuth/keyauth.hpp" 
-
 #define kWidth  [UIScreen mainScreen].bounds.size.width
 #define kHeight [UIScreen mainScreen].bounds.size.height
 #define kScale [UIScreen mainScreen].scale
@@ -31,20 +25,18 @@
 static bool MenDeal = true;
 
 // ==========================================
-// KEYAUTH INITIALIZATION & CREDENTIALS
+// KEYAUTH DETAILS (Web API Method)
 // ==========================================
-std::string name = "EXLITER PRO";
-std::string ownerid = "JU1KcBIQwE";
-std::string secret = "b0ffff3c2299551401bdfcf35ea9be8283c0aab612cc0241c5d813e4f0f2a393";
-std::string version = "1.0";
-
-// KeyAuth API Instance එක නිර්මාණය කිරීම
-KeyAuth::api KeyAuthApp(name, ownerid, secret, version);
+static NSString *const kaName = @"EXLITER PRO";
+static NSString *const kaOwnerId = @"JU1KcBIQwE";
+static NSString *const kaSecret = @"b0ffff3c2299551401bdfcf35ea9be8283c0aab612cc0241c5d813e4f0f2a393";
+static NSString *const kaVersion = @"1.0";
 
 static bool isKeyAuthLogged = false;
-static char licenseKeyInput[128] = ""; // User key එක ගහන තැන
+static char licenseKeyInput[128] = ""; 
 static std::string subExpiryDate = "N/A";
 static std::string subDaysRemaining = "0";
+static std::string loginErrorMessage = "";
 
 // ==========================================
 // 1. AIMBOT VARIABLES (Image 6)
@@ -54,7 +46,7 @@ static bool showFovCircle = false;
 static bool ignoreInvisible = false;
 static bool ignoreKnocked = false;
 static bool forceLock = false;
-static int selectedHitbox = 0; // 0: Nearest, 1: Head, 2: Neck, 3: Body
+static int selectedHitbox = 0; 
 
 // ==========================================
 // 2. VISUALS VARIABLES (Image 7)
@@ -92,6 +84,81 @@ static bool esp_active = false;
 
 @implementation ImGuiDrawView
 
+// ==========================================
+// NATIVE KEYAUTH LOGIN LOGIC (No Files Required)
+// ==========================================
+- (BOOL)performKeyAuthLogin:(NSString *)userKey {
+    NSString *apiUrl = @"https://keyauth.win/api/1.2/";
+    
+    // Step 1: Initialize Session
+    NSMutableURLRequest *initRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
+    [initRequest setHTTPMethod:@"POST"];
+    NSString *initPostData = [NSString stringWithFormat:@"type=init&name=%@&ownerid=%@&secret=%@&ver=%@", kaName, kaOwnerId, kaSecret, kaVersion];
+    [initRequest setHTTPBody:[initPostData dataUsingEncoding:NSUTF8StringEncoding]];
+    
+    __block NSDictionary *initJson = nil;
+    dispatch_semaphore_t sema1 = dispatch_semaphore_create(0);
+    
+    [[[NSURLSession sharedSession] dataTaskWithRequest:initRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (data) {
+            initJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        }
+        dispatch_semaphore_signal(sema1);
+    }] resume];
+    
+    dispatch_semaphore_wait(sema1, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
+    
+    if (!initJson || ![initJson[@"success"] boolValue]) {
+        loginErrorMessage = initJson[@"message"] ? [initJson[@"message"] UTF8String] : "Init Failed. Check connection.";
+        return NO;
+    }
+    
+    NSString *sessionId = initJson[@"sessionid"];
+    if (!sessionId) return NO;
+    
+    // Step 2: License Login
+    NSMutableURLRequest *loginRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
+    [loginRequest setHTTPMethod:@"POST"];
+    NSString *loginPostData = [NSString stringWithFormat:@"type=license&key=%@&sessionid=%@&name=%@&ownerid=%@", userKey, sessionId, kaName, kaOwnerId];
+    [loginRequest setHTTPBody:[loginPostData dataUsingEncoding:NSUTF8StringEncoding]];
+    
+    __block NSDictionary *loginJson = nil;
+    dispatch_semaphore_t sema2 = dispatch_semaphore_create(0);
+    
+    [[[NSURLSession sharedSession] dataTaskWithRequest:loginRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (data) {
+            loginJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        }
+        dispatch_semaphore_signal(sema2);
+    }] resume];
+    
+    dispatch_semaphore_wait(sema2, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
+    
+    if (loginJson && [loginJson[@"success"] boolValue]) {
+        NSDictionary *info = loginJson[@"info"];
+        if (info) {
+            id expiryVal = info[@"expiry"];
+            if (expiryVal) {
+                subExpiryDate = [NSString stringWithFormat:@"%@", expiryVal].UTF8String;
+            }
+            NSArray *subs = info[@"subscriptions"];
+            if (subs && subs.count > 0) {
+                id timeleft = subs[0][@"timeleft"];
+                if (timeleft) {
+                    // Convert seconds left to days
+                    long long seconds = [timeleft longLongValue];
+                    long long days = seconds / 86400;
+                    subDaysRemaining = [NSString stringWithFormat:@"%lld Days", days].UTF8String;
+                }
+            }
+        }
+        return YES;
+    } else {
+        loginErrorMessage = loginJson[@"message"] ? [loginJson[@"message"] UTF8String] : "Invalid License Key.";
+        return NO;
+    }
+}
+
 bool (*old_get_IsAiming)(void *instance);
 bool new_get_IsAiming(void *instance) {
     return true; 
@@ -116,14 +183,6 @@ void _huy(void *instance)
     
     ImFont* font = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     ImGui_ImplMetal_Init(_device);
-
-    // ==========================================
-    // KEYAUTH INITIAL CALL ON BOOT
-    // ==========================================
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        KeyAuthApp.init(); // KeyAuth App එක initialize කිරීම (ලෝගින් වෙන්න කලින් අනිවාර්යයි)
-    });
-
     return self;
 }
 
@@ -141,7 +200,7 @@ void _huy(void *instance)
 {
     CGFloat w = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.width;
     CGFloat h = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.height;
-    self.view = [[NSClassFromString(@"MTKView") alloc] initWithFrame:CGRectMake(0, 0, w, h)];
+    self.view = [[MTKView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
 }
 
 - (void)viewDidLoad {
@@ -198,13 +257,13 @@ void _huy(void *instance)
     if (renderPassDescriptor != nil)
     {
         id <MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
-        [renderEncoder pushDebugGroup:@"ImGui KeyAuth Menu"];
+        [renderEncoder pushDebugGroup:@"ImGui Native KeyAuth"];
 
         ImGui_ImplMetal_NewFrame(renderPassDescriptor);
         ImGui::NewFrame();
         
         // ==========================================
-        // DYNAMIC PRESTIGE STYLING
+        // DYNAMIC STYLING
         // ==========================================
         ImGuiStyle* style = &ImGui::GetStyle();
         style->WindowRounding = 12.0f;       
@@ -252,10 +311,10 @@ void _huy(void *instance)
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
             
             // ==========================================
-            // SCREEN 1: LOGIN SCREEN (KEYAUTH)
+            // SCREEN 1: LOGIN SCREEN (KEYAUTH NATIVE)
             // ==========================================
             if (!isKeyAuthLogged) {
-                ImGui::SetNextWindowSize(ImVec2(350, 200), ImGuiCond_Always);
+                ImGui::SetNextWindowSize(ImVec2(350, 220), ImGuiCond_Always);
                 ImGui::Begin("LOGIN SYSTEM", &MenDeal, window_flags);
                 
                 ImGui::Spacing();
@@ -264,25 +323,21 @@ void _huy(void *instance)
                 ImGui::Spacing(); ImGui::Spacing();
                 
                 ImGui::Text("Enter License Key:");
-                ImGui::InputText("##LicenseField", licenseKeyInput, IM_ARRAYSIZE(licenseKeyInput), ImGuiInputTextFlags_Password);
+                ImGui::InputText("##LicenseField", licenseKeyInput, IM_ARRAYSIZE(licenseKeyInput));
                 
                 ImGui::Spacing(); ImGui::Spacing();
                 
                 if (ImGui::Button("Activate & Login", ImVec2(150, 35))) {
-                    std::string keyStr(licenseKeyInput);
-                    if (!keyStr.empty()) {
-                        // KeyAuth හරහා ලයිසන් එක චෙක් කිරීම
-                        KeyAuthApp.license(keyStr); 
-                        
-                        if (KeyAuthApp.data.success) {
-                            isKeyAuthLogged = true;
-                            // Expire Date එක සහ ඉතිරි දින ගණන KeyAuth සර්වර් එකෙන් ලබා ගැනීම
-                            subExpiryDate = KeyAuthApp.data.expiry;
-                            subDaysRemaining = KeyAuthApp.data.ip; // සාමාන්‍යයෙන් API එකේ ඉතිරි දින ගණන හෝ details ලබාගන්නා variable එක
-                        } else {
-                            // වැරදි Key එකක් නම් reset කිරීම
-                            memset(licenseKeyInput, 0, sizeof(licenseKeyInput));
-                        }
+                    NSString *userKey = [NSString stringWithUTF8String:licenseKeyInput];
+                    if (userKey.length > 0) {
+                        // Global queue එකකින් background එකේ රන් කරනවා UI එක freeze වෙන්නේ නැති වෙන්න
+                        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                            BOOL success = [self performKeyAuthLogin:userKey];
+                            if (success) {
+                                isKeyAuthLogged = true;
+                                loginErrorMessage = "";
+                            }
+                        });
                     }
                 }
                 
@@ -292,9 +347,9 @@ void _huy(void *instance)
                 }
                 
                 // Login එක Fail වුණොත් Error එක පෙන්වීම
-                if (!KeyAuthApp.data.success && !KeyAuthApp.data.message.empty()) {
+                if (!loginErrorMessage.empty()) {
                     ImGui::Spacing();
-                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "Error: %s", KeyAuthApp.data.message.c_str());
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "%s", loginErrorMessage.c_str());
                 }
                 
                 ImGui::End();
@@ -363,7 +418,7 @@ void _huy(void *instance)
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                // 1. AIMBOT TAB (Image 6)
+                // 1. AIMBOT TAB
                 if (activeTab == 0) { 
                     ImGui::TextColored(customAccent, "AIMBOT"); 
                     ImGui::SameLine(); ImGui::TextDisabled("| Automatically aim at enemies");
@@ -380,7 +435,7 @@ void _huy(void *instance)
                     const char* hitboxes[] = { "Nearest", "Head", "Neck", "Body" };
                     ImGui::Combo("##HitboxCombo", &selectedHitbox, hitboxes, IM_ARRAYSIZE(hitboxes));
                 } 
-                // 2. VISUALS TAB (Image 7)
+                // 2. VISUALS TAB
                 else if (activeTab == 1) { 
                     ImGui::TextColored(customAccent, "VISUALS");
                     ImGui::SameLine(); ImGui::TextDisabled("| Various visual improvements");
@@ -402,7 +457,7 @@ void _huy(void *instance)
                     
                     ImGui::SliderFloat("Counter text size", &counterTextSize, 10.0f, 50.0f, "%.1fpx");
                 } 
-                // 3. MISC TAB (Image 8)
+                // 3. MISC TAB
                 else if (activeTab == 2) { 
                     ImGui::TextColored(customAccent, "MISC");
                     ImGui::SameLine(); ImGui::TextDisabled("| Game enhancements");
@@ -417,7 +472,6 @@ void _huy(void *instance)
                     ImGui::TextColored(customAccent, "SETTINGS & SECURITY");
                     ImGui::Spacing();
                     
-                    // Accent Color Pick
                     ImGui::Text("Menu Accent Color:");
                     ImGui::SameLine();
                     ImGui::ColorEdit4("##AccentColorPicker", menuAccentColor, ImGuiColorEditFlags_NoInputs);
@@ -426,19 +480,17 @@ void _huy(void *instance)
                     ImGui::Separator();
                     ImGui::Spacing();
                     
-                    // KeyAuth හරහා සර්වර් එකෙන් එන නියම Subscription details ටික මෙතනින් පෙන්වනවා:
                     ImGui::TextColored(customAccent, "SUBSCRIPTION DETAILS");
                     ImGui::Text("User Status: Active VIP");
                     ImGui::Text("License Key: %s", licenseKeyInput);
                     
-                    // Expire දිනය පරිවර්තනය කර පෙන්වීම
                     if (subExpiryDate != "N/A") {
-                        // KeyAuth සර්වර් එකෙන් එවන UNIX timestamp එක සාමාන්‍ය දිනයකට හරවා පෙන්වීම
                         time_t rawtime = std::stoll(subExpiryDate);
                         struct tm * timeinfo = localtime(&rawtime);
                         char buffer[80];
                         strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
                         ImGui::Text("Expires: %s", buffer);
+                        ImGui::Text("Time Left: %s", subDaysRemaining.c_str());
                     } else {
                         ImGui::Text("Expires: Lifetime");
                     }
