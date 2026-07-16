@@ -98,13 +98,13 @@ void _huy(void *instance)
 }
 
 - (void)viewDidLoad {
-    [super boilerplate];
     [super viewDidLoad];
     self.mtkView.device = self.device;
     self.mtkView.delegate = self;
     self.mtkView.clearColor = MTLClearColorMake(0, 0, 0, 0);
     self.mtkView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
     self.mtkView.clipsToBounds = YES;
+}
 }
 
 #pragma mark - Interaction
