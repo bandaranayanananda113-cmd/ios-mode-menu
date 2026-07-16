@@ -23,10 +23,13 @@ jobs:
 
       - name: Build with Theos
         run: |
+          MAKEFILE_PATH=$(find . -name "Makefile" | head -n 1)
+          MAKEFILE_DIR=$(dirname "$MAKEFILE_PATH")
+          cd "$MAKEFILE_DIR"
           make package FINALPACKAGE=1
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ModMenu-Package
-          path: packages/*.deb
+          path: "**/*.deb"
