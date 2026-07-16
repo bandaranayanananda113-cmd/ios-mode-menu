@@ -179,11 +179,11 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             BOOL success = [self performKeyAuthLogin:savedKey];
             dispatch_async(dispatch_get_main_queue(), ^{
-                self->isAuthenticating = false;
+                // FIXED: static variable එකක් නිසා self-> පාවිච්චි කරන්නේ නැත
+                isAuthenticating = false;
                 if (success) {
                     isKeyAuthLogged = true;
                 } else {
-                    // Auto-login එකේදී Key එක අවුල් වුනොත් (Expired වගේ නම්) Saved එක මකනවා
                     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_SAVED_KEY"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
                 }
@@ -461,11 +461,11 @@ void _huy(void *instance) {
                         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                             BOOL success = [self performKeyAuthLogin:userKey];
                             dispatch_async(dispatch_get_main_queue(), ^{
-                                self->isAuthenticating = false;
+                                // FIXED: static variable එකක් නිසා self-> පාවිච්චි කරන්නේ නැත
+                                isAuthenticating = false;
                                 if (success) {
                                     isKeyAuthLogged = true;
                                 } else {
-                                    // වැරදි KeyAuth එකක් නම් 7-Second Crash එක මෙතනින් trigger වෙනවා
                                     isCountdownActive = true;
                                     countdownStartTime = [NSDate timeIntervalSinceReferenceDate];
                                 }
