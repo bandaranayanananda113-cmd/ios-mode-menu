@@ -38,9 +38,13 @@ jobs:
           echo "-----------------------------------"
           
           make FINALPACKAGE=1
+          
+          echo "--- Dylib ෆයිල් එක එළියට ගැනීම ---"
+          mkdir -p Final_Output
+          find . -name "*.dylib" -exec cp {} ./Final_Output/ \;
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ModMenu-Dylib
-          path: "**/*.dylib"
+          path: "**/Final_Output/*.dylib"
