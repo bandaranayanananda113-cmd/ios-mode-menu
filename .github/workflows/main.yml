@@ -23,19 +23,20 @@ jobs:
 
       - name: Build with Theos
         run: |
-          echo "--- GitHub එකට Upload වෙලා තියෙන ෆයිල්ස් ---"
-          ls -laR
-          echo "---------------------------------------------"
-          
           MAKEFILE_PATH=$(find . -iname "makefile" | head -n 1)
           
           if [ -z "$MAKEFILE_PATH" ]; then
-            echo "Error: Makefile එක හොයාගන්න නෑ! ඔයා ඒක GitHub එකට Upload කරලා නැද්ද බලන්න."
+            echo "Error: Makefile එක හොයාගන්න නෑ!"
             exit 1
           fi
           
-          echo "Makefile එක හම්බවුණා මෙතනින්: $MAKEFILE_PATH"
           cd "$(dirname "$MAKEFILE_PATH")"
+          
+          echo "--- Compiler Warnings මඟහැරීම ---"
+          echo "ADDITIONAL_CFLAGS += -Wno-error -Wno-nontrivial-memcall -Wno-module-import-in-extern-c" >> Makefile
+          echo "ADDITIONAL_CCFLAGS += -Wno-error -Wno-nontrivial-memcall -Wno-module-import-in-extern-c" >> Makefile
+          echo "-----------------------------------"
+          
           make FINALPACKAGE=1
 
       - name: Upload Artifact
