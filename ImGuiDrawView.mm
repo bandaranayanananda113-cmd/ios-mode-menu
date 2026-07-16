@@ -7,7 +7,7 @@
 #import "Esp/CaptainHook.h"
 #import "Esp/ImGuiDrawView.h"
 #import "IMGUI/imgui.h"
-#import "IMGUI/imgui_internal.h" // InputText active state චෙක් කරන්න ඕනේ නිසා
+#import "IMGUI/imgui_internal.h" 
 #import "IMGUI/imgui_impl_metal.h"
 #import "IMGUI/Honkai.h"
 
@@ -23,11 +23,10 @@
 #define kHeight [UIScreen mainScreen].bounds.size.height
 #define kScale [UIScreen mainScreen].scale
 
-// ගේම් එක ලෝඩ් වෙද්දීම මෙනු එක අනිවාර්යයෙන්ම ඕපන් වෙන්න මෙතන true කරනවා
 static bool MenDeal = true; 
 
 // ==========================================
-// KEYAUTH DETAILS (Web API Method)
+// KEYAUTH DETAILS
 // ==========================================
 static NSString *const kaName = @"EXLITER PRO";
 static NSString *const kaOwnerId = @"JU1KcBIQwE";
@@ -40,6 +39,11 @@ static std::string subExpiryDate = "N/A";
 static std::string subDaysRemaining = "0";
 static std::string loginErrorMessage = "";
 static bool isAuthenticating = false;
+
+// Auto-Crash & Timer Variables
+static bool isCountdownActive = false;
+static NSTimeInterval countdownStartTime = 0;
+static int secondsRemaining = 7;
 
 // ==========================================
 // CHEAT VARIABLES
@@ -60,20 +64,28 @@ static bool espNickname = false;
 static bool espDistance = false;
 static bool nearbyCount = false;
 static float counterTextSize = 25.0f;
-static float counterColor[4] = {1.0f, 0.0f, 0.0f, 1.0f}; 
 
 static bool noFog = false;
 static bool noFpsLimit = false;
 static bool noWeaponSpread = false;
 
-// Premium Cyan Theme Color
-static float menuAccentColor[4] = {0.00f, 1.00f, 0.88f, 1.00f}; // Cyber Neon Cyan (#00FFE0)
-
+static float menuAccentColor[4] = {0.00f, 0.95f, 1.00f, 1.00f}; // Electric Cyan
 static bool aimbot_active = false;
 static bool esp_active = false;
 
-// Hidden Dummy TextField for iOS Keyboard Trigger
+// Hidden iOS TextField
 static UITextField *hiddenTextField = nil;
+
+// iOS Clipboard Bridge for ImGui
+const char* GetClipboardTextFn(void* user_data) {
+    UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
+    return pasteboard.string ? [pasteboard.string UTF8String] : "";
+}
+
+void SetClipboardTextFn(void* user_data, const char* text) {
+    UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
+    pasteboard.string = [NSString stringWithUTF8String:text];
+}
 
 @interface ImGuiDrawView () <MTKViewDelegate>
 @property (nonatomic, strong) id <MTLDevice> device;
@@ -82,9 +94,7 @@ static UITextField *hiddenTextField = nil;
 
 @implementation ImGuiDrawView
 
-// ==========================================
-// NATIVE KEYAUTH LOGIN LOGIC
-// ==========================================
+// Key Auth Login Logic
 - (BOOL)performKeyAuthLogin:(NSString *)userKey {
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
     
@@ -106,7 +116,7 @@ static UITextField *hiddenTextField = nil;
     dispatch_semaphore_wait(sema1, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
     
     if (!initJson || ![initJson[@"success"] boolValue]) {
-        loginErrorMessage = initJson[@"message"] ? [initJson[@"message"] UTF8String] : "Server Connection Failed.";
+        loginErrorMessage = "Server Connection Failed.";
         return NO;
     }
     
@@ -147,10 +157,38 @@ static UITextField *hiddenTextField = nil;
                 }
             }
         }
+        
+        // සාර්ථක නම් Key එක Auto-save කරගන්නවා (NSUserDefaults)
+        [[NSUserDefaults standardUserDefaults] setObject:userKey forKey:@"COSMOS_SAVED_KEY"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        
         return YES;
     } else {
         loginErrorMessage = loginJson[@"message"] ? [loginJson[@"message"] UTF8String] : "Invalid Key.";
         return NO;
+    }
+}
+
+// Background Auto Login Handler
+- (void)tryAutoLogin {
+    NSString *savedKey = [[NSUserDefaults standardUserDefaults] stringForKey:@"COSMOS_SAVED_KEY"];
+    if (savedKey && savedKey.length > 0) {
+        strncpy(licenseKeyInput, [savedKey UTF8String], sizeof(licenseKeyInput) - 1);
+        isAuthenticating = true;
+        
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            BOOL success = [self performKeyAuthLogin:savedKey];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self->isAuthenticating = false;
+                if (success) {
+                    isKeyAuthLogged = true;
+                } else {
+                    // Auto-login එකේදී Key එක අවුල් වුනොත් (Expired වගේ නම්) Saved එක මකනවා
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_SAVED_KEY"];
+                    [[NSUserDefaults standardUserDefaults] synchronize];
+                }
+            });
+        });
     }
 }
 
@@ -175,6 +213,9 @@ void _huy(void *instance) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     
+    io.GetClipboardTextFn = GetClipboardTextFn;
+    io.SetClipboardTextFn = SetClipboardTextFn;
+    
     ImFont* font = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     ImGui_ImplMetal_Init(_device);
     
@@ -183,7 +224,6 @@ void _huy(void *instance) {
 
 + (void)showChange:(BOOL)open
 {
-    // ලොගින් වෙලා නැත්නම් ගේම් එක ඇතුලේදී මෙනු එක වහන්න දෙන්නේ නැහැ
     if (!isKeyAuthLogged) {
         MenDeal = true;
     } else {
@@ -211,20 +251,16 @@ void _huy(void *instance) {
     self.mtkView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
     self.mtkView.clipsToBounds = YES;
 
-    // iOS Keyboard එක Force ඕපන් කරන්න හදන Hidden TextField එක
     hiddenTextField = [[UITextField alloc] initWithFrame:CGRectZero];
     hiddenTextField.keyboardType = UIKeyboardTypeASCIICapable;
     hiddenTextField.hidden = YES;
     [self.view addSubview:hiddenTextField];
-    
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
+
+    // App එක open කරපු ගමන් Auto-login try කරනවා
+    [self tryAutoLogin];
 }
 
-- (void)keyboardWillShow:(NSNotification *)notification {
-    // Keyboard එක ඕපන් වෙද්දී ImGui එකට input focus එක දෙනවා
-}
-
-#pragma mark - Interaction
+#pragma mark - Touch Events & Keyboard Dismiss
 - (void)updateIOWithTouchEvent:(UIEvent *)event
 {
     UITouch *anyTouch = event.allTouches.anyObject;
@@ -242,11 +278,16 @@ void _huy(void *instance) {
         }
     }
     io.MouseDown[0] = hasActiveTouch;
+    
+    if (anyTouch.phase == UITouchPhaseBegan) {
+        if (!ImGui::IsAnyItemActive() && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow)) {
+            [self.view endEditing:YES];
+            [hiddenTextField resignFirstResponder];
+        }
+    }
 }
 
-- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { 
-    [self updateIOWithTouchEvent:event]; 
-}
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
@@ -265,7 +306,6 @@ void _huy(void *instance) {
     
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     
-    // ලොගින් වෙනකම් Touch Controls 100% ක් මෙනු එකට විතරක් සීමා කරනවා (ගේම් එක ක්ලික් කරන්න බෑ)
     if (!isKeyAuthLogged) {
         [self.view setUserInteractionEnabled:YES];
     } else {
@@ -282,49 +322,62 @@ void _huy(void *instance) {
         ImGui::NewFrame();
         
         // ==========================================
-        // CYBERPUNK PREMIUM STYLING
+        // 3D EFFECT ULTRA-PREMIUM THEME (COSMOS DEMO STYLE)
         // ==========================================
         ImGuiStyle* style = &ImGui::GetStyle();
-        style->WindowRounding = 10.0f;       
-        style->FrameRounding = 6.0f;        
+        style->WindowRounding = 14.0f;       
+        style->FrameRounding = 8.0f;        
         style->GrabRounding = 6.0f;
-        style->PopupRounding = 6.0f;
-        style->ChildRounding = 8.0f;
-        style->WindowPadding = ImVec2(0, 0); 
-        style->FramePadding = ImVec2(12, 10);
-        style->ItemSpacing = ImVec2(10, 12);
-        style->WindowBorderSize = 1.5f; // Border එකක් දාලා Glow කරවන්න
+        style->PopupRounding = 8.0f;
+        style->ChildRounding = 12.0f;
+        style->WindowPadding = ImVec2(18, 18); 
+        style->FramePadding = ImVec2(14, 11);
+        style->ItemSpacing = ImVec2(12, 12);
+        
+        // 3D Frame & Window Borders
+        style->WindowBorderSize = 1.5f; 
+        style->FrameBorderSize = 1.0f;
 
         ImVec4* colors = style->Colors;
-        colors[ImGuiCol_WindowBg]               = ImVec4(0.05f, 0.06f, 0.09f, 0.98f); // Deep Space Black
-        colors[ImGuiCol_ChildBg]                = ImVec4(0.08f, 0.09f, 0.13f, 0.70f);
-        colors[ImGuiCol_FrameBg]                = ImVec4(0.12f, 0.14f, 0.18f, 1.00f);
-        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.16f, 0.19f, 0.24f, 1.00f);
-        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.20f, 0.24f, 0.30f, 1.00f);
+        colors[ImGuiCol_WindowBg]               = ImVec4(0.05f, 0.05f, 0.08f, 1.00f); // Pure Dark Obsidian
+        colors[ImGuiCol_ChildBg]                = ImVec4(0.08f, 0.09f, 0.13f, 0.70f); 
+        colors[ImGuiCol_FrameBg]                = ImVec4(0.12f, 0.13f, 0.18f, 1.00f); // 3D Extruded Frame Feel
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.16f, 0.18f, 0.25f, 1.00f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.20f, 0.23f, 0.32f, 1.00f);
         
         ImVec4 customAccent = ImVec4(menuAccentColor[0], menuAccentColor[1], menuAccentColor[2], menuAccentColor[3]);
-        colors[ImGuiCol_Border]                 = customAccent; // Border එක Cyber Cyan වෙනවා
+        colors[ImGuiCol_Border]                 = customAccent; 
         colors[ImGuiCol_CheckMark]              = customAccent;
         colors[ImGuiCol_SliderGrab]             = customAccent;
         colors[ImGuiCol_SliderGrabActive]       = ImVec4(customAccent.x + 0.1f, customAccent.y + 0.1f, customAccent.z + 0.1f, 1.0f);
-        colors[ImGuiCol_Button]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.15f); // Soft Glow Buttons
-        colors[ImGuiCol_ButtonHovered]          = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.35f);
-        colors[ImGuiCol_ButtonActive]           = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.50f);
+        colors[ImGuiCol_Button]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.22f); 
+        colors[ImGuiCol_ButtonHovered]          = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.45f);
+        colors[ImGuiCol_ButtonActive]           = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.70f);
         
-        colors[ImGuiCol_Text]                   = ImVec4(0.95f, 0.98f, 1.00f, 1.00f);
-        colors[ImGuiCol_TextDisabled]           = ImVec4(0.45f, 0.55f, 0.65f, 1.00f);
+        colors[ImGuiCol_Text]                   = ImVec4(1.00f, 1.00f, 1.00f, 1.00f); // Solid Clear White
+        colors[ImGuiCol_TextDisabled]           = ImVec4(0.60f, 0.65f, 0.75f, 1.00f); 
         
         ImFont* font = ImGui::GetFont();
         font->Scale = 14.f / font->FontSize;
         
         // ==========================================
-        // SCREEN 1: CYBERPUNK LOGIN (ONLY IF NOT LOGGED IN)
+        // 7-SECOND CRASH LOGIC (IF ACTIVE)
+        // ==========================================
+        if (isCountdownActive) {
+            int elapsed = (int)([NSDate timeIntervalSinceReferenceDate] - countdownStartTime);
+            secondsRemaining = 7 - elapsed;
+            if (secondsRemaining <= 0) {
+                exit(0); // App එක ක්‍රෑෂ් කරවනවා!
+            }
+        }
+
+        // ==========================================
+        // SCREEN 1: LOGIN (COSMOS DEMO)
         // ==========================================
         if (!isKeyAuthLogged) 
         {
-            // ගේම් එකේ මැදටම Lock කරනවා
-            CGFloat loginWidth = 380;
-            CGFloat loginHeight = 310;
+            CGFloat loginWidth = 400;
+            CGFloat loginHeight = 330;
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
             
@@ -333,39 +386,35 @@ void _huy(void *instance) {
             
             ImGuiWindowFlags login_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove;
             
-            ImGui::Begin("CYBER_LOGIN", NULL, login_flags);
+            ImGui::Begin("LOGIN_SYSTEM", NULL, login_flags);
             
-            // --- TOP HEADER BAR WITH CHROME DOTS (Premium Look) ---
+            // Premium Header Bar with 3D shadow effect
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
+            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 45), ImColor(18, 20, 28, 255), 14.0f, ImDrawCornerFlags_Top);
             
-            // Title Background
-            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 35), ImColor(11, 14, 22, 255), 10.0f, ImDrawCornerFlags_Top);
+            // Decorative 3D neon bar beneath header
+            drawList->AddLine(ImVec2(pos.x, pos.y + 45), ImVec2(pos.x + loginWidth, pos.y + 45), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 1.5f);
             
-            // Premium Mac-style Dot Buttons
-            drawList->AddCircleFilled(ImVec2(pos.x + 20, pos.y + 18), 5.0f, ImColor(255, 95, 82, 255));   // Red
-            drawList->AddCircleFilled(ImVec2(pos.x + 35, pos.y + 18), 5.0f, ImColor(255, 189, 46, 255));  // Yellow
-            drawList->AddCircleFilled(ImVec2(pos.x + 50, pos.y + 18), 5.0f, ImColor(40, 201, 64, 255));   // Green
+            // Premium Mac Status Dots
+            drawList->AddCircleFilled(ImVec2(pos.x + 25, pos.y + 22), 6.0f, ImColor(255, 95, 82, 255));   
+            drawList->AddCircleFilled(ImVec2(pos.x + 42, pos.y + 22), 6.0f, ImColor(255, 189, 46, 255));  
+            drawList->AddCircleFilled(ImVec2(pos.x + 59, pos.y + 22), 6.0f, ImColor(40, 201, 64, 255));   
             
-            // Title Text
-            ImGui::SetCursorPos(ImVec2(0, 8));
-            ImGui::SetWindowFontScale(0.95f);
-            ImGui::TextColored(customAccent, "               IVANE MODE V5  |  SECURE BY KEYAUTH");
-            ImGui::SetWindowFontScale(1.0f);
+            ImGui::SetCursorPos(ImVec2(85, 14));
+            ImGui::TextColored(customAccent, "COSMOS DEMO - VIP");
             
-            ImGui::SetCursorPosY(45);
+            ImGui::SetCursorPosY(65);
             ImGui::Spacing();
             
-            ImGui::BeginChild("LoginMain", ImVec2(loginWidth - 20, loginHeight - 65), true);
+            ImGui::TextDisabled("Enter Activation License Key:");
             
-            ImGui::Spacing();
-            ImGui::TextDisabled("ENTER LICENSE KEY TO ACCESS THE CHEAT:");
-            ImGui::Spacing();
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.08f, 0.09f, 0.12f, 1.00f));
+            ImGui::SetNextItemWidth(-1);
             
-            // Keyboard Popup Fix: Input Text එක ඇක්ටිව් වුණොත් iOS Keyboard එක force කරනවා
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.05f, 0.06f, 0.08f, 1.00f));
-            if (ImGui::InputText("##LicenseField", licenseKeyInput, IM_ARRAYSIZE(licenseKeyInput))) {
-                // Typing..
+            // Auto Select & Double-tap standard input with native copy/paste linkage
+            if (ImGui::InputText("##LicenseField", licenseKeyInput, IM_ARRAYSIZE(licenseKeyInput), ImGuiInputTextFlags_AutoSelectAll)) {
+                // Key typing detection
             }
             ImGui::PopStyleColor();
             
@@ -379,8 +428,8 @@ void _huy(void *instance) {
             
             ImGui::Spacing();
             
-            // --- 💡 ONE-TAP PASTE FROM CLIPBOARD BUTTON (For iOS Ease) ---
-            if (ImGui::Button("📋 PASTE KEY FROM CLIPBOARD", ImVec2(ImGui::GetContentRegionAvailWidth(), 35))) {
+            // Easy Quick-Paste Button
+            if (ImGui::Button("📋 Paste Saved / Clipboard Key", ImVec2(-1, 38))) {
                 UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
                 if (pasteboard.string) {
                     strncpy(licenseKeyInput, [pasteboard.string UTF8String], sizeof(licenseKeyInput) - 1);
@@ -391,54 +440,67 @@ void _huy(void *instance) {
             ImGui::Separator();
             ImGui::Spacing();
             
-            // Action Buttons
-            if (isAuthenticating) {
-                ImGui::Button("AUTHENTICATING... PLEASE WAIT", ImVec2(200, 40));
+            // Key Login Actions
+            if (isCountdownActive) {
+                // If countdown is active, disable inputs
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.00f));
+                ImGui::Text("CRASHING IN %d SECONDS...", secondsRemaining);
+                ImGui::PopStyleColor();
+            } else if (isAuthenticating) {
+                ImGui::Button("Verifying with Server...", ImVec2(170, 42));
             } else {
-                if (ImGui::Button("AUTHENTICATE", ImVec2(200, 40))) {
+                if (ImGui::Button("Activate & Login", ImVec2(170, 42))) {
                     NSString *userKey = [NSString stringWithUTF8String:licenseKeyInput];
                     if (userKey.length > 0) {
                         isAuthenticating = true;
                         loginErrorMessage = "";
                         
+                        [hiddenTextField resignFirstResponder];
+                        [self.view endEditing:YES];
+                        
                         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                             BOOL success = [self performKeyAuthLogin:userKey];
                             dispatch_async(dispatch_get_main_queue(), ^{
-                                isAuthenticating = false;
+                                self->isAuthenticating = false;
                                 if (success) {
                                     isKeyAuthLogged = true;
-                                    [hiddenTextField resignFirstResponder];
+                                } else {
+                                    // වැරදි KeyAuth එකක් නම් 7-Second Crash එක මෙතනින් trigger වෙනවා
+                                    isCountdownActive = true;
+                                    countdownStartTime = [NSDate timeIntervalSinceReferenceDate];
                                 }
                             });
                         });
                     } else {
-                        loginErrorMessage = "Please enter or paste a key first!";
+                        loginErrorMessage = "Please enter or paste your key.";
                     }
                 }
             }
             
             ImGui::SameLine();
-            if (ImGui::Button("CANCEL / TG", ImVec2(ImGui::GetContentRegionAvailWidth(), 40))) {
+            if (ImGui::Button("Get Key", ImVec2(-1, 42))) {
                 [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://t.me/cosmosdemo"] options:@{} completionHandler:nil];
             }
             
-            // Errors
             if (!loginErrorMessage.empty()) {
                 ImGui::Spacing();
-                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "⚠️ %s", loginErrorMessage.c_str());
+                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", loginErrorMessage.c_str());
             }
             
-            ImGui::EndChild();
             ImGui::End();
         } 
         
         // ==========================================
-        // SCREEN 2: MAIN MENU (SUCCESSFULLY LOGGED IN)
+        // SCREEN 2: MAIN MENU (COSMOS DEMO)
         // ==========================================
         else if (MenDeal == true) 
         {
-            CGFloat menuWidth = 500;
-            CGFloat menuHeight = 340;
+            if ([hiddenTextField isFirstResponder]) {
+                [hiddenTextField resignFirstResponder];
+            }
+
+            CGFloat menuWidth = 530;
+            CGFloat menuHeight = 360;
             CGFloat mx = (view.bounds.size.width - menuWidth) / 2;
             CGFloat my = (view.bounds.size.height - menuHeight) / 2;
             
@@ -449,14 +511,14 @@ void _huy(void *instance) {
             ImGui::Begin("COSMOS PRIVATE MENU", &MenDeal, window_flags);
             
             ImGui::Columns(2, "MainLayout", false);
-            ImGui::SetColumnWidth(0, 130.0f); 
+            ImGui::SetColumnWidth(0, 150.0f); 
             
             // LEFT SIDEBAR
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.03f, 0.04f, 0.06f, 1.00f)); 
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.04f, 0.05f, 0.08f, 1.00f)); 
             ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
             
-            ImGui::Spacing(); ImGui::Spacing();
-            ImGui::TextColored(customAccent, "  IVANE V5");
+            ImGui::Spacing();
+            ImGui::TextColored(customAccent, "  COSMOS DEMO");
             ImGui::Separator();
             ImGui::Spacing();
 
@@ -466,18 +528,18 @@ void _huy(void *instance) {
             for (int i = 0; i < 4; i++) {
                 bool is_selected = (activeTab == i);
                 if (is_selected) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.15f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.20f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.25f));
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.25f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.35f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.45f));
                     ImGui::PushStyleColor(ImGuiCol_Text, customAccent);
                 } else {
                     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.04f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.06f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.65f, 0.7f, 1.00f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.08f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.75f, 0.78f, 0.85f, 1.00f));
                 }
 
-                if (ImGui::Button(tabs[i], ImVec2(110, 35))) {
+                if (ImGui::Button(tabs[i], ImVec2(130, 38))) {
                     activeTab = i;
                 }
                 ImGui::PopStyleColor(4);
@@ -492,13 +554,9 @@ void _huy(void *instance) {
             ImGui::BeginChild("ContentArea", ImVec2(0, 0), false);
             
             ImGui::Spacing();
-            
-            if (ImGui::Button("@cosmos", ImVec2(75, 22))) {
-                [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://t.me/cosmosdemo"] options:@{} completionHandler:nil];
-            }
-            
+            ImGui::TextColored(customAccent, "MAIN SYSTEM CONTROL");
             ImGui::SameLine(ImGui::GetWindowWidth() - 35);
-            if (ImGui::Button("X", ImVec2(22, 22))) {
+            if (ImGui::Button("X", ImVec2(24, 24))) {
                 MenDeal = false;
             }
             ImGui::Separator();
@@ -506,28 +564,23 @@ void _huy(void *instance) {
 
             // 1. AIMBOT TAB
             if (activeTab == 0) { 
-                ImGui::TextColored(customAccent, "AIMBOT"); 
-                ImGui::Spacing();
-                
                 ImGui::Checkbox("Aimbot", &aimbotEnable);
-                ImGui::Checkbox("Show FOV circle", &showFovCircle);
-                ImGui::Checkbox("Ignore invisible targets", &ignoreInvisible);
-                ImGui::Checkbox("Ignore knocked targets", &ignoreKnocked);
-                ImGui::Checkbox("Force lock", &forceLock);
+                ImGui::Checkbox("Show FOV", &showFovCircle);
+                ImGui::Checkbox("Ignore Invisible", &ignoreInvisible);
+                ImGui::Checkbox("Ignore Knocked", &ignoreKnocked);
+                ImGui::Checkbox("Force Lock", &forceLock);
                 
                 ImGui::Spacing();
-                ImGui::Text("Hitbox");
+                ImGui::Text("Hitbox Target:");
                 const char* hitboxes[] = { "Nearest", "Head", "Neck", "Body" };
+                ImGui::SetNextItemWidth(180);
                 ImGui::Combo("##HitboxCombo", &selectedHitbox, hitboxes, IM_ARRAYSIZE(hitboxes));
             } 
             // 2. VISUALS TAB
             else if (activeTab == 1) { 
-                ImGui::TextColored(customAccent, "VISUALS");
-                ImGui::Spacing();
-                
                 ImGui::Checkbox("Enemy ESP", &enemyEsp);
                 ImGui::Checkbox("Line", &espLine);
-                ImGui::Checkbox("Use fire material", &useFireMaterial);
+                ImGui::Checkbox("Use Fire Material", &useFireMaterial);
                 ImGui::Checkbox("Box", &espBox);
                 ImGui::Checkbox("Health", &espHealth);
                 ImGui::Checkbox("Nickname", &espNickname);
@@ -535,47 +588,34 @@ void _huy(void *instance) {
                 ImGui::Checkbox("Nearby enemies count", &nearbyCount);
                 
                 ImGui::Spacing();
-                ImGui::Text("Counter text color");
-                ImGui::SameLine();
-                ImGui::ColorEdit4("##CounterColor", counterColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
-                
-                ImGui::SliderFloat("Counter text size", &counterTextSize, 10.0f, 50.0f, "%.1fpx");
+                ImGui::Text("Counter Size Slider:");
+                ImGui::SetNextItemWidth(200);
+                ImGui::SliderFloat("##CounterSize", &counterTextSize, 10.0f, 50.0f, "%.1fpx");
             } 
             // 3. MISC TAB
             else if (activeTab == 2) { 
-                ImGui::TextColored(customAccent, "MISC");
-                ImGui::Spacing();
-                
-                ImGui::Checkbox("No fog", &noFog);
-                ImGui::Checkbox("No FPS limit", &noFpsLimit);
-                ImGui::Checkbox("No weapon spread", &noWeaponSpread);
+                ImGui::Checkbox("No Fog", &noFog);
+                ImGui::Checkbox("No FPS Limit", &noFpsLimit);
+                ImGui::Checkbox("No Weapon Spread", &noWeaponSpread);
             } 
             // 4. SETTINGS TAB
             else if (activeTab == 3) { 
-                ImGui::TextColored(customAccent, "SETTINGS & SECURITY");
-                ImGui::Spacing();
-                
-                ImGui::Text("Menu Accent Color:");
-                ImGui::SameLine();
-                ImGui::ColorEdit4("##AccentColorPicker", menuAccentColor, ImGuiColorEditFlags_NoInputs);
-                
-                ImGui::Spacing();
+                ImGui::TextColored(customAccent, "LICENSE SYSTEM STATUS");
                 ImGui::Separator();
                 ImGui::Spacing();
                 
-                ImGui::TextColored(customAccent, "SUBSCRIPTION DETAILS");
-                ImGui::Text("User Status: Active VIP");
-                ImGui::Text("License Key: %s", licenseKeyInput);
+                ImGui::Text("Saved Key: %s", licenseKeyInput);
+                ImGui::Text("System: COSMOS DEMO VIP");
                 
                 if (subExpiryDate != "N/A") {
                     time_t rawtime = std::stoll(subExpiryDate);
                     struct tm * timeinfo = localtime(&rawtime);
                     char buffer[80];
                     strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
-                    ImGui::Text("Expires: %s", buffer);
-                    ImGui::Text("Time Left: %s", subDaysRemaining.c_str());
+                    ImGui::Text("Expiry Date: %s", buffer);
+                    ImGui::Text("Time Remaining: %s", subDaysRemaining.c_str());
                 } else {
-                    ImGui::Text("Expires: Lifetime");
+                    ImGui::Text("Expiry Date: Unlimited VIP");
                 }
             }
             
@@ -587,7 +627,7 @@ void _huy(void *instance) {
         ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
         
         // ==========================================
-        // CHEAT LOGIC (Only runs if KeyAuth is Logged In)
+        // ACTIVE CHEAT HOOKS & RENDERING
         // ==========================================
         if (isKeyAuthLogged) {
             if(aimbotEnable){
