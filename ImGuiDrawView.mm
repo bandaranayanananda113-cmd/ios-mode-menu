@@ -105,7 +105,6 @@ void _huy(void *instance)
     self.mtkView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
     self.mtkView.clipsToBounds = YES;
 }
-}
 
 #pragma mark - Interaction
 - (void)updateIOWithTouchEvent:(UIEvent *)event
