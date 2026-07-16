@@ -26,10 +26,10 @@ jobs:
           MAKEFILE_PATH=$(find . -name "Makefile" | head -n 1)
           MAKEFILE_DIR=$(dirname "$MAKEFILE_PATH")
           cd "$MAKEFILE_DIR"
-          make package FINALPACKAGE=1
+          make FINALPACKAGE=1
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ModMenu-Package
-          path: "**/*.deb"
+          name: ModMenu-Dylib
+          path: "**/*.dylib"
