@@ -1,13 +1,16 @@
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 #import <Foundation/Foundation.h>
-//Imgui library
+#import <UIKit/UIKit.h>
+
+// Imgui library
 #import "Esp/CaptainHook.h"
 #import "Esp/ImGuiDrawView.h"
 #import "IMGUI/imgui.h"
 #import "IMGUI/imgui_impl_metal.h"
 #import "IMGUI/Honkai.h"
-//Patch library
+
+// Patch library
 #import "5Toubun/NakanoIchika.h"
 #import "5Toubun/NakanoNino.h"
 #import "5Toubun/NakanoMiku.h"
@@ -15,32 +18,69 @@
 #import "5Toubun/NakanoItsuki.h"
 #import "5Toubun/dobby.h"
 
+// ==========================================
+// KEYAUTH C++ HEADER IMPORT
+// ==========================================
+// ඔයාගේ KeyAuth හෙඩර් ෆයිල් එකේ නම keyauth.hpp නෙමෙයි නම්, ඒ නමට වෙනස් කරන්න.
+#include "KeyAuth/keyauth.hpp" 
+
 #define kWidth  [UIScreen mainScreen].bounds.size.width
 #define kHeight [UIScreen mainScreen].bounds.size.height
 #define kScale [UIScreen mainScreen].scale
 
-// Global static variables (මෙනු එකේ values මතක තියාගන්න)
 static bool MenDeal = true;
 
-// UI States
+// ==========================================
+// KEYAUTH INITIALIZATION & CREDENTIALS
+// ==========================================
+std::string name = "EXLITER PRO";
+std::string ownerid = "JU1KcBIQwE";
+std::string secret = "b0ffff3c2299551401bdfcf35ea9be8283c0aab612cc0241c5d813e4f0f2a393";
+std::string version = "1.0";
+
+// KeyAuth API Instance එක නිර්මාණය කිරීම
+KeyAuth::api KeyAuthApp(name, ownerid, secret, version);
+
+static bool isKeyAuthLogged = false;
+static char licenseKeyInput[128] = ""; // User key එක ගහන තැන
+static std::string subExpiryDate = "N/A";
+static std::string subDaysRemaining = "0";
+
+// ==========================================
+// 1. AIMBOT VARIABLES (Image 6)
+// ==========================================
 static bool aimbotEnable = false;
-static bool silentAim = false;
-static bool autoFire = false;
 static bool showFovCircle = false;
-static float fovValue = 30.0f;
-static float speedValue = 0.01f;
-static float distanceValue = 10.0f;
+static bool ignoreInvisible = false;
+static bool ignoreKnocked = false;
+static bool forceLock = false;
+static int selectedHitbox = 0; // 0: Nearest, 1: Head, 2: Neck, 3: Body
 
-static bool espEnable = false;
-static bool showLines = false;
-static bool showBoxes = false;
-static bool showSkeleton = false;
+// ==========================================
+// 2. VISUALS VARIABLES (Image 7)
+// ==========================================
+static bool enemyEsp = false;
+static bool espLine = false;
+static bool useFireMaterial = false;
+static bool espBox = false;
+static bool espHealth = false;
+static bool espNickname = false;
+static bool espDistance = false;
+static bool nearbyCount = false;
+static float counterTextSize = 25.0f;
+static float counterColor[4] = {1.0f, 0.0f, 0.0f, 1.0f}; 
 
-static int selectedBone = 0; // 0: Head, 1: Chest, 2: Randomized
-static int selectedPriority = 0;
+// ==========================================
+// 3. MISC VARIABLES (Image 8)
+// ==========================================
+static bool noFog = false;
+static bool noFpsLimit = false;
+static bool noWeaponSpread = false;
+
+// COLOR CUSTOMIZER
+static float menuAccentColor[4] = {0.98f, 0.34f, 0.13f, 1.00f}; // Default: Orange
 
 // Active Cheats State Tracking
-static bool show_s0 = false;
 static bool show_s0_active = false;
 static bool aimbot_active = false;
 static bool esp_active = false;
@@ -52,7 +92,6 @@ static bool esp_active = false;
 
 @implementation ImGuiDrawView
 
-// ගේම් එකේ logic එකට සම්බන්ධ වෙන pointers
 bool (*old_get_IsAiming)(void *instance);
 bool new_get_IsAiming(void *instance) {
     return true; 
@@ -77,6 +116,14 @@ void _huy(void *instance)
     
     ImFont* font = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     ImGui_ImplMetal_Init(_device);
+
+    // ==========================================
+    // KEYAUTH INITIAL CALL ON BOOT
+    // ==========================================
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        KeyAuthApp.init(); // KeyAuth App එක initialize කිරීම (ලෝගින් වෙන්න කලින් අනිවාර්යයි)
+    });
+
     return self;
 }
 
@@ -94,7 +141,7 @@ void _huy(void *instance)
 {
     CGFloat w = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.width;
     CGFloat h = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.height;
-    self.view = [[MTKView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
+    self.view = [[NSClassFromString(@"MTKView") alloc] initWithFrame:CGRectMake(0, 0, w, h)];
 }
 
 - (void)viewDidLoad {
@@ -151,50 +198,49 @@ void _huy(void *instance)
     if (renderPassDescriptor != nil)
     {
         id <MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
-        [renderEncoder pushDebugGroup:@"ImGui Premium Menu"];
+        [renderEncoder pushDebugGroup:@"ImGui KeyAuth Menu"];
 
         ImGui_ImplMetal_NewFrame(renderPassDescriptor);
         ImGui::NewFrame();
         
         // ==========================================
-        // APPLY PREMIUM DARK & ORANGE STYLE
+        // DYNAMIC PRESTIGE STYLING
         // ==========================================
         ImGuiStyle* style = &ImGui::GetStyle();
-        style->WindowRounding = 16.0f;       // Rounded Corners
-        style->FrameRounding = 10.0f;        // Premium pill-shaped UI elements
-        style->GrabRounding = 10.0f;
-        style->PopupRounding = 10.0f;
-        style->ChildRounding = 12.0f;
-        style->WindowPadding = ImVec2(0, 0); // Padding manually handled
-        style->FramePadding = ImVec2(14, 10);
-        style->ItemSpacing = ImVec2(12, 12);
+        style->WindowRounding = 12.0f;       
+        style->FrameRounding = 8.0f;        
+        style->GrabRounding = 8.0f;
+        style->PopupRounding = 8.0f;
+        style->ChildRounding = 10.0f;
+        style->WindowPadding = ImVec2(0, 0); 
+        style->FramePadding = ImVec2(12, 8);
+        style->ItemSpacing = ImVec2(10, 10);
 
         ImVec4* colors = style->Colors;
-        // Premium Slate-Dark Blue Theme
-        colors[ImGuiCol_WindowBg]               = ImVec4(0.06f, 0.07f, 0.10f, 0.98f);
-        colors[ImGuiCol_ChildBg]                = ImVec4(0.09f, 0.11f, 0.15f, 0.60f);
-        colors[ImGuiCol_FrameBg]                = ImVec4(0.12f, 0.14f, 0.20f, 1.00f);
-        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.16f, 0.19f, 0.27f, 1.00f);
-        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.20f, 0.24f, 0.33f, 1.00f);
+        colors[ImGuiCol_WindowBg]               = ImVec4(0.04f, 0.05f, 0.07f, 0.98f);
+        colors[ImGuiCol_ChildBg]                = ImVec4(0.07f, 0.08f, 0.12f, 0.50f);
+        colors[ImGuiCol_FrameBg]                = ImVec4(0.10f, 0.12f, 0.16f, 1.00f);
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.14f, 0.17f, 0.22f, 1.00f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.18f, 0.21f, 0.28f, 1.00f);
         
-        // Vibrant Orange accents (පින්තූරයේ පරිදි)
-        colors[ImGuiCol_CheckMark]              = ImVec4(0.98f, 0.34f, 0.13f, 1.00f);
-        colors[ImGuiCol_SliderGrab]             = ImVec4(0.98f, 0.34f, 0.13f, 1.00f);
-        colors[ImGuiCol_SliderGrabActive]       = ImVec4(1.00f, 0.45f, 0.20f, 1.00f);
-        colors[ImGuiCol_Button]                 = ImVec4(0.98f, 0.34f, 0.13f, 0.85f);
-        colors[ImGuiCol_ButtonHovered]          = ImVec4(1.00f, 0.44f, 0.23f, 1.00f);
-        colors[ImGuiCol_ButtonActive]           = ImVec4(0.85f, 0.28f, 0.08f, 1.00f);
+        ImVec4 customAccent = ImVec4(menuAccentColor[0], menuAccentColor[1], menuAccentColor[2], menuAccentColor[3]);
+        colors[ImGuiCol_CheckMark]              = customAccent;
+        colors[ImGuiCol_SliderGrab]             = customAccent;
+        colors[ImGuiCol_SliderGrabActive]       = ImVec4(customAccent.x + 0.1f, customAccent.y + 0.1f, customAccent.z + 0.1f, 1.0f);
+        colors[ImGuiCol_Button]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.80f);
+        colors[ImGuiCol_ButtonHovered]          = customAccent;
+        colors[ImGuiCol_ButtonActive]           = ImVec4(customAccent.x - 0.1f, customAccent.y - 0.1f, customAccent.z - 0.1f, 1.0f);
         
-        colors[ImGuiCol_Text]                   = ImVec4(0.95f, 0.96f, 0.98f, 1.00f);
-        colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.55f, 0.64f, 1.00f);
-        colors[ImGuiCol_Border]                 = ImVec4(0.15f, 0.18f, 0.25f, 0.50f);
+        colors[ImGuiCol_Text]                   = ImVec4(0.93f, 0.95f, 0.98f, 1.00f);
+        colors[ImGuiCol_TextDisabled]           = ImVec4(0.45f, 0.50f, 0.60f, 1.00f);
+        colors[ImGuiCol_Border]                 = ImVec4(0.12f, 0.15f, 0.20f, 0.40f);
         
         ImFont* font = ImGui::GetFont();
-        font->Scale = 15.f / font->FontSize;
+        font->Scale = 14.f / font->FontSize;
         
-        // Menu size setup
-        CGFloat menuWidth = 580;
-        CGFloat menuHeight = 400;
+        // Compact Menu Size setup
+        CGFloat menuWidth = 500;
+        CGFloat menuHeight = 340;
         CGFloat x = ([UIScreen mainScreen].bounds.size.width - menuWidth) / 2;
         CGFloat y = ([UIScreen mainScreen].bounds.size.height - menuHeight) / 2;
         
@@ -203,199 +249,249 @@ void _huy(void *instance)
         
         if (MenDeal == true)
         {     
-            // Window flags
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
-            ImGui::Begin("COSMOS PREMIUM MENU", &MenDeal, window_flags);
-            
-            // සයිඩ් බාර් එක සහ කන්ටෙන්ට් එක බෙදා ගැනීමට Columns භාවිතය
-            ImGui::Columns(2, "MainLayout", false);
-            // Column widths (වම්පස Sidebar එකට 150px ද, දකුණුපසට ඉතිරියද වෙන් කෙරේ)
-            ImGui::SetColumnWidth(0, 150.0f); 
             
             // ==========================================
-            // LEFT SIDEBAR MENU
+            // SCREEN 1: LOGIN SCREEN (KEYAUTH)
             // ==========================================
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.05f, 0.06f, 0.09f, 1.00f)); // Sidebar Darker background
-            ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
-            
-            ImGui::Spacing(); ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.98f, 0.34f, 0.13f, 1.00f), "  COSMOS");
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            static int activeTab = 0; // 0: Aimbot, 1: Visuals, 2: Misc, 3: Settings, 4: Account
-
-            // Custom Sidebar buttons to look premium
-            const char* tabs[] = { " Aimbot", " Visuals", " Misc", " Settings", " Account" };
-            for (int i = 0; i < 5; i++) {
-                bool is_selected = (activeTab == i);
-                if (is_selected) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.98f, 0.34f, 0.13f, 0.15f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.98f, 0.34f, 0.13f, 0.20f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.98f, 0.34f, 0.13f, 0.25f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.98f, 0.34f, 0.13f, 1.00f));
-                } else {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.05f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.08f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.65f, 0.7f, 1.00f));
-                }
-
-                if (ImGui::Button(tabs[i], ImVec2(130, 40))) {
-                    activeTab = i;
-                }
-                ImGui::PopStyleColor(4);
-                ImGui::Spacing();
-            }
-            ImGui::EndChild();
-            ImGui::PopStyleColor(); // Pop sidebar bg
-
-            // Move to next column (Right side content)
-            ImGui::NextColumn();
-            
-            // ==========================================
-            // RIGHT CONTENT AREA
-            // ==========================================
-            ImGui::BeginChild("ContentArea", ImVec2(0, 0), false);
-            
-            // Close header bar on top right
-            ImGui::Spacing();
-            ImGui::TextDisabled("STATUS: ACTIVE"); 
-            ImGui::SameLine(ImGui::GetWindowWidth() - 40);
-            if (ImGui::Button("X", ImVec2(25, 25))) {
-                MenDeal = false;
-            }
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            // Render Content based on Active Tab
-            if (activeTab == 0) { // AIMBOT
-                ImGui::TextColored(ImVec4(0.98f, 0.34f, 0.13f, 1.00f), "AIMBOT SETTINGS");
-                ImGui::Spacing();
-                
-                ImGui::Checkbox("Aimbot Enable", &aimbotEnable);
-                ImGui::Checkbox("Silent Aim", &silentAim);
-                ImGui::Checkbox("Auto Fire", &autoFire);
-                ImGui::Checkbox("Show FOV Circle", &showFovCircle);
+            if (!isKeyAuthLogged) {
+                ImGui::SetNextWindowSize(ImVec2(350, 200), ImGuiCond_Always);
+                ImGui::Begin("LOGIN SYSTEM", &MenDeal, window_flags);
                 
                 ImGui::Spacing();
+                ImGui::TextColored(customAccent, "      COSMOS LOGIN SYSTEM");
+                ImGui::Separator();
+                ImGui::Spacing(); ImGui::Spacing();
+                
+                ImGui::Text("Enter License Key:");
+                ImGui::InputText("##LicenseField", licenseKeyInput, IM_ARRAYSIZE(licenseKeyInput), ImGuiInputTextFlags_Password);
+                
+                ImGui::Spacing(); ImGui::Spacing();
+                
+                if (ImGui::Button("Activate & Login", ImVec2(150, 35))) {
+                    std::string keyStr(licenseKeyInput);
+                    if (!keyStr.empty()) {
+                        // KeyAuth හරහා ලයිසන් එක චෙක් කිරීම
+                        KeyAuthApp.license(keyStr); 
+                        
+                        if (KeyAuthApp.data.success) {
+                            isKeyAuthLogged = true;
+                            // Expire Date එක සහ ඉතිරි දින ගණන KeyAuth සර්වර් එකෙන් ලබා ගැනීම
+                            subExpiryDate = KeyAuthApp.data.expiry;
+                            subDaysRemaining = KeyAuthApp.data.ip; // සාමාන්‍යයෙන් API එකේ ඉතිරි දින ගණන හෝ details ලබාගන්නා variable එක
+                        } else {
+                            // වැරදි Key එකක් නම් reset කිරීම
+                            memset(licenseKeyInput, 0, sizeof(licenseKeyInput));
+                        }
+                    }
+                }
+                
+                ImGui::SameLine();
+                if (ImGui::Button("Get Key (TG)", ImVec2(120, 35))) {
+                    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://t.me/cosmosdemo"] options:@{} completionHandler:nil];
+                }
+                
+                // Login එක Fail වුණොත් Error එක පෙන්වීම
+                if (!KeyAuthApp.data.success && !KeyAuthApp.data.message.empty()) {
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "Error: %s", KeyAuthApp.data.message.c_str());
+                }
+                
+                ImGui::End();
+            } 
+            
+            // ==========================================
+            // SCREEN 2: MAIN MENU (SUCCESSFULLY LOGGED IN)
+            // ==========================================
+            else {
+                ImGui::Begin("COSMOS PRIVATE MENU", &MenDeal, window_flags);
+                
+                ImGui::Columns(2, "MainLayout", false);
+                ImGui::SetColumnWidth(0, 130.0f); 
+                
+                // LEFT SIDEBAR
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.03f, 0.04f, 0.06f, 1.00f)); 
+                ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
+                
+                ImGui::Spacing(); ImGui::Spacing();
+                ImGui::TextColored(customAccent, "  COSMOS");
                 ImGui::Separator();
                 ImGui::Spacing();
-                
-                ImGui::SliderFloat("FOV Size", &fovValue, 10.0f, 360.0f, "%.0f px");
-                ImGui::SliderFloat("Smooth Speed", &speedValue, 0.01f, 1.0f, "%.2f");
-                ImGui::SliderFloat("Max Distance", &distanceValue, 5.0f, 500.0f, "%.0f m");
-                
-                ImGui::Spacing();
-                // Bone Selection Combo Box
-                const char* bones[] = { "Head", "Chest", "Randomized" };
-                ImGui::Combo("Target Bone", &selectedBone, bones, IM_ARRAYSIZE(bones));
 
-            } 
-            else if (activeTab == 1) { // VISUALS
-                ImGui::TextColored(ImVec4(0.98f, 0.34f, 0.13f, 1.00f), "VISUALS (ESP)");
-                ImGui::Spacing();
+                static int activeTab = 0; 
+                const char* tabs[] = { " Aimbot", " Visuals", " Misc", " Settings" };
                 
-                ImGui::Checkbox("ESP Master Switch", &espEnable);
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
-                
-                ImGui::Checkbox("Show Lines (Snaplines)", &showLines);
-                ImGui::Checkbox("Show Boxes (2D Box)", &showBoxes);
-                ImGui::Checkbox("Show Skeleton", &showSkeleton);
-            } 
-            else if (activeTab == 2) { // MISC
-                ImGui::TextColored(ImVec4(0.98f, 0.34f, 0.13f, 1.00f), "MISCELLANEOUS CHEATS");
-                ImGui::Spacing();
-                
-                ImGui::Checkbox("Map Hack (Map Cheat)", &show_s0);
-            } 
-            else if (activeTab == 3) { // SETTINGS
-                ImGui::TextColored(ImVec4(0.98f, 0.34f, 0.13f, 1.00f), "MENU SETTINGS");
-                ImGui::Spacing();
-                
-                ImGui::Text("FPS: %.1f FPS", ImGui::GetIO().Framerate);
-                ImGui::Text("Menu Resolution: %.0f x %.0f", menuWidth, menuHeight);
-                ImGui::Spacing();
-                if (ImGui::Button("Reset UI Position", ImVec2(180, 35))) {
-                    ImGui::SetWindowPos("COSMOS PREMIUM MENU", ImVec2(x, y));
+                for (int i = 0; i < 4; i++) {
+                    bool is_selected = (activeTab == i);
+                    if (is_selected) {
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.15f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.20f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.25f));
+                        ImGui::PushStyleColor(ImGuiCol_Text, customAccent);
+                    } else {
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.04f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.06f));
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.65f, 0.7f, 1.00f));
+                    }
+
+                    if (ImGui::Button(tabs[i], ImVec2(110, 35))) {
+                        activeTab = i;
+                    }
+                    ImGui::PopStyleColor(4);
+                    ImGui::Spacing();
                 }
-            } 
-            else if (activeTab == 4) { // ACCOUNT
-                ImGui::TextColored(ImVec4(0.98f, 0.34f, 0.13f, 1.00f), "USER ACCOUNT");
+                ImGui::EndChild();
+                ImGui::PopStyleColor(); 
+
+                ImGui::NextColumn();
+                
+                // RIGHT CONTENT AREA
+                ImGui::BeginChild("ContentArea", ImVec2(0, 0), false);
+                
                 ImGui::Spacing();
                 
-                ImGui::Text("User: VIP Member");
-                ImGui::Text("Licence Expire: Lifetime");
-                ImGui::Spacing();
+                // TG Button
+                if (ImGui::Button("@cosmos", ImVec2(75, 22))) {
+                    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://t.me/cosmosdemo"] options:@{} completionHandler:nil];
+                }
+                
+                ImGui::SameLine(ImGui::GetWindowWidth() - 35);
+                if (ImGui::Button("X", ImVec2(22, 22))) {
+                    MenDeal = false;
+                }
                 ImGui::Separator();
                 ImGui::Spacing();
-                ImGui::Text("Developer Support Telegram:");
-                ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "@COSMOSDEMO");
+
+                // 1. AIMBOT TAB (Image 6)
+                if (activeTab == 0) { 
+                    ImGui::TextColored(customAccent, "AIMBOT"); 
+                    ImGui::SameLine(); ImGui::TextDisabled("| Automatically aim at enemies");
+                    ImGui::Spacing();
+                    
+                    ImGui::Checkbox("Aimbot", &aimbotEnable);
+                    ImGui::Checkbox("Show FOV circle", &showFovCircle);
+                    ImGui::Checkbox("Ignore invisible targets", &ignoreInvisible);
+                    ImGui::Checkbox("Ignore knocked targets", &ignoreKnocked);
+                    ImGui::Checkbox("Force lock", &forceLock);
+                    
+                    ImGui::Spacing();
+                    ImGui::Text("Hitbox");
+                    const char* hitboxes[] = { "Nearest", "Head", "Neck", "Body" };
+                    ImGui::Combo("##HitboxCombo", &selectedHitbox, hitboxes, IM_ARRAYSIZE(hitboxes));
+                } 
+                // 2. VISUALS TAB (Image 7)
+                else if (activeTab == 1) { 
+                    ImGui::TextColored(customAccent, "VISUALS");
+                    ImGui::SameLine(); ImGui::TextDisabled("| Various visual improvements");
+                    ImGui::Spacing();
+                    
+                    ImGui::Checkbox("Enemy ESP", &enemyEsp);
+                    ImGui::Checkbox("Line", &espLine);
+                    ImGui::Checkbox("Use fire material", &useFireMaterial);
+                    ImGui::Checkbox("Box", &espBox);
+                    ImGui::Checkbox("Health", &espHealth);
+                    ImGui::Checkbox("Nickname", &espNickname);
+                    ImGui::Checkbox("Distance", &espDistance);
+                    ImGui::Checkbox("Nearby enemies count", &nearbyCount);
+                    
+                    ImGui::Spacing();
+                    ImGui::Text("Counter text color");
+                    ImGui::SameLine();
+                    ImGui::ColorEdit4("##CounterColor", counterColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+                    
+                    ImGui::SliderFloat("Counter text size", &counterTextSize, 10.0f, 50.0f, "%.1fpx");
+                } 
+                // 3. MISC TAB (Image 8)
+                else if (activeTab == 2) { 
+                    ImGui::TextColored(customAccent, "MISC");
+                    ImGui::SameLine(); ImGui::TextDisabled("| Game enhancements");
+                    ImGui::Spacing();
+                    
+                    ImGui::Checkbox("No fog", &noFog);
+                    ImGui::Checkbox("No FPS limit", &noFpsLimit);
+                    ImGui::Checkbox("No weapon spread", &noWeaponSpread);
+                } 
+                // 4. SETTINGS TAB (Subscription Details)
+                else if (activeTab == 3) { 
+                    ImGui::TextColored(customAccent, "SETTINGS & SECURITY");
+                    ImGui::Spacing();
+                    
+                    // Accent Color Pick
+                    ImGui::Text("Menu Accent Color:");
+                    ImGui::SameLine();
+                    ImGui::ColorEdit4("##AccentColorPicker", menuAccentColor, ImGuiColorEditFlags_NoInputs);
+                    
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    
+                    // KeyAuth හරහා සර්වර් එකෙන් එන නියම Subscription details ටික මෙතනින් පෙන්වනවා:
+                    ImGui::TextColored(customAccent, "SUBSCRIPTION DETAILS");
+                    ImGui::Text("User Status: Active VIP");
+                    ImGui::Text("License Key: %s", licenseKeyInput);
+                    
+                    // Expire දිනය පරිවර්තනය කර පෙන්වීම
+                    if (subExpiryDate != "N/A") {
+                        // KeyAuth සර්වර් එකෙන් එවන UNIX timestamp එක සාමාන්‍ය දිනයකට හරවා පෙන්වීම
+                        time_t rawtime = std::stoll(subExpiryDate);
+                        struct tm * timeinfo = localtime(&rawtime);
+                        char buffer[80];
+                        strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeinfo);
+                        ImGui::Text("Expires: %s", buffer);
+                    } else {
+                        ImGui::Text("Expires: Lifetime");
+                    }
+                }
+                
+                ImGui::EndChild();
+                ImGui::Columns(1); 
+                ImGui::End();   
             }
-            
-            ImGui::EndChild();
-            ImGui::Columns(1); // Reset Columns layout
-            ImGui::End();   
         }
         
         ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
         
         // ==========================================
-        // CHEAT LOGIC PROCESSING
+        // CHEAT LOGIC IMPLEMENTATION (Only runs if logged in)
         // ==========================================
+        if (isKeyAuthLogged) {
+            // Aimbot Hook
+            if(aimbotEnable){
+                if(!aimbot_active){
+                    DobbyHook((void *)(getRealOffset(ENCRYPTOFFSET("0x6C07BD8"))), (void *)new_get_IsAiming, (void **)&old_get_IsAiming);
+                    aimbot_active = true;
+                }
+            } else {
+                if(aimbot_active){
+                    DobbyDestroy((void *)(getRealOffset(ENCRYPTOFFSET("0x6C07BD8"))));
+                    aimbot_active = false;
+                }
+            }
 
-        // Map Cheat
-        if(show_s0){
-            if(show_s0_active == NO){
-                vm_unity(ENCRYPTOFFSET("0x517A154"), strtoul(ENCRYPTHEX("0x360080D2"), nullptr, 0));
-                vm(ENCRYPTOFFSET("0x10517A154"), strtoul(ENCRYPTHEX("0x360080D2"), nullptr, 0));
+            // ESP Patch
+            if(enemyEsp){
+                if(!esp_active){
+                    vm_unity(ENCRYPTOFFSET("0x6F498D4"), strtoul(ENCRYPTHEX("0x010080D2"), nullptr, 0));
+                    esp_active = true;
+                }
+            } else {
+                if(esp_active){
+                    vm_unity(ENCRYPTOFFSET("0x6F498D4"), strtoul(ENCRYPTHEX("0xF60302AA"), nullptr, 0));
+                    esp_active = false;
+                }
             }
-            show_s0_active = YES;
-        } else {
-            if(show_s0_active == YES){
-                vm_unity(ENCRYPTOFFSET("0x517A154"), strtoul(ENCRYPTHEX("0xF60302AA"), nullptr, 0));
-                vm(ENCRYPTOFFSET("0x10517A154"), strtoul(ENCRYPTHEX("0xF60302AA"), nullptr, 0));
-            }
-            show_s0_active = NO;
-        }
+                
+            static dispatch_once_t onceToken;
+            dispatch_once(&onceToken, ^{
+                  DobbyHook((void *)(getRealOffset(ENCRYPTOFFSET("0x5F145F8"))), (void *)_huy, (void **)&huy);
+            });
 
-        // Aimbot Hook
-        if(aimbotEnable){
-            if(!aimbot_active){
-                DobbyHook((void *)(getRealOffset(ENCRYPTOFFSET("0x6C07BD8"))), (void *)new_get_IsAiming, (void **)&old_get_IsAiming);
-                aimbot_active = true;
+            // FOV Circle
+            if (aimbotEnable && showFovCircle) {
+                ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
+                draw_list->AddCircle(center, 120.0f, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 100, 1.5f);
             }
-        } else {
-            if(aimbot_active){
-                DobbyDestroy((void *)(getRealOffset(ENCRYPTOFFSET("0x6C07BD8"))));
-                aimbot_active = false;
-            }
-        }
-
-        // ESP Patch
-        if(espEnable){
-            if(!esp_active){
-                vm_unity(ENCRYPTOFFSET("0x6F498D4"), strtoul(ENCRYPTHEX("0x010080D2"), nullptr, 0));
-                esp_active = true;
-            }
-        } else {
-            if(esp_active){
-                vm_unity(ENCRYPTOFFSET("0x6F498D4"), strtoul(ENCRYPTHEX("0xF60302AA"), nullptr, 0));
-                esp_active = false;
-            }
-        }
-            
-        static dispatch_once_t onceToken;
-        dispatch_once(&onceToken, ^{
-              DobbyHook((void *)(getRealOffset(ENCRYPTOFFSET("0x5F145F8"))), (void *)_huy, (void **)&huy);
-        });
-
-        // DRAW FOV CIRCLE (Aimbot FOV)
-        if (aimbotEnable && showFovCircle) {
-            ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
-            draw_list->AddCircle(center, fovValue, ImColor(250, 87, 33, 200), 100, 1.5f);
         }
 
         ImGui::Render();
