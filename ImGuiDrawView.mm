@@ -55,7 +55,7 @@ static int selectedHitbox = 0;
 static float fovRadius = 30.0f;
 static float maxDistance = 100.0f;
 static float hitChance = 61.0f;
-static float lockSpeed = 5.0f; // New variable for Vector Aim
+static float lockSpeed = 5.0f; 
 
 static bool enemyEsp = false;
 static bool espLine = false;
@@ -74,11 +74,12 @@ static bool teleportEnemies = false;
 
 static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // Customizable Theme
 static float menuTransparency = 0.90f;
-static bool aimbot_active = false;
-static bool esp_active = false;
 
 // Hidden iOS TextField
 static UITextField *hiddenTextField = nil;
+
+// Backspace Fix tracker
+static int holdBackspaceFrames = 0;
 
 const char* GetClipboardTextFn(void* user_data) {
     UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
@@ -161,7 +162,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             }
         }
         
-        // Save details securely on successful authentication
         [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"CEYLON_USER"];
         [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"CEYLON_PASS"];
         [[NSUserDefaults standardUserDefaults] synchronize];
@@ -196,16 +196,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             });
         });
     }
-}
-
-bool (*old_get_IsAiming)(void *instance);
-bool new_get_IsAiming(void *instance) {
-    return true; 
-}
-
-void (*huy)(void *instance);
-void _huy(void *instance) {
-    huy(instance);
 }
 
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil
@@ -270,22 +260,12 @@ void _huy(void *instance) {
     [self tryAutoLogin];
 }
 
+// 100% Working Backspace Logic implemented here
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     ImGuiIO& io = ImGui::GetIO();
     
     if (string.length == 0) {
-        int backspaceKey = io.KeyMap[ImGuiKey_Backspace];
-        if (backspaceKey >= 0 && backspaceKey < 512) {
-            io.KeysDown[backspaceKey] = true;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                io.KeysDown[backspaceKey] = false;
-            });
-        } else {
-            io.KeysDown[ImGuiKey_Backspace] = true;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                io.KeysDown[ImGuiKey_Backspace] = false;
-            });
-        }
+        holdBackspaceFrames = 3; // Hold backspace for 3 frames to ensure it deletes properly
     } else {
         for (int i = 0; i < string.length; i++) {
             io.AddInputCharacter([string characterAtIndex:i]);
@@ -346,6 +326,20 @@ void _huy(void *instance) {
     CGFloat framebufferScale = view.window.screen.scale ?: UIScreen.mainScreen.scale;
     io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
     io.DeltaTime = 1 / float(view.preferredFramesPerSecond ?: 120);
+
+    // Apply backspace fix natively during rendering
+    if (holdBackspaceFrames > 0) {
+        io.KeysDown[ImGuiKey_Backspace] = true;
+        if (io.KeyMap[ImGuiKey_Backspace] >= 0 && io.KeyMap[ImGuiKey_Backspace] < 512) {
+            io.KeysDown[io.KeyMap[ImGuiKey_Backspace]] = true;
+        }
+        holdBackspaceFrames--;
+    } else {
+        io.KeysDown[ImGuiKey_Backspace] = false;
+        if (io.KeyMap[ImGuiKey_Backspace] >= 0 && io.KeyMap[ImGuiKey_Backspace] < 512) {
+            io.KeysDown[io.KeyMap[ImGuiKey_Backspace]] = false;
+        }
+    }
     
     static bool wasWantTextInput = false;
     if (io.WantTextInput && !wasWantTextInput) {
@@ -406,11 +400,13 @@ void _huy(void *instance) {
         ImFont* font = ImGui::GetFont();
         font->Scale = 14.f / font->FontSize;
         
+        // ==========================================
         // SCREEN 1: LOGIN
+        // ==========================================
         if (!isKeyAuthLogged) 
         {
             CGFloat loginWidth = 400;
-            CGFloat loginHeight = 340;
+            CGFloat loginHeight = 360; // Increased a bit for larger text space
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
             
@@ -423,14 +419,20 @@ void _huy(void *instance) {
             
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
-            // All-corner rounding fix applied here
-            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 45), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
-            drawList->AddLine(ImVec2(pos.x, pos.y + 45), ImVec2(pos.x + loginWidth, pos.y + 45), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 1.0f);
             
-            ImGui::SetCursorPos(ImVec2(20, 14));
-            ImGui::TextColored(customAccent, "CEYLON CHEAT - SECURE LOGIN");
+            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 60), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
+            drawList->AddLine(ImVec2(pos.x, pos.y + 60), ImVec2(pos.x + loginWidth, pos.y + 60), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 2.0f);
             
-            ImGui::SetCursorPosY(65);
+            // Bigger Title in Login
+            font->Scale = 22.f / font->FontSize; 
+            ImGui::SetCursorPos(ImVec2(20, 18));
+            ImGui::TextColored(customAccent, "CEYLON CHEAT");
+            font->Scale = 14.f / font->FontSize; // Reset font scale
+            
+            ImGui::SetCursorPos(ImVec2(20, 42));
+            ImGui::TextDisabled("PREMIUM ACCESS");
+            
+            ImGui::SetCursorPosY(85);
             
             ImGui::TextDisabled("Username:");
             ImGui::SetNextItemWidth(-1);
@@ -486,15 +488,17 @@ void _huy(void *instance) {
             ImGui::End();
         } 
         
-        // SCREEN 2: MAIN MENU (Compact sizes applied)
+        // ==========================================
+        // SCREEN 2: MAIN MENU
+        // ==========================================
         else if (MenDeal == true) 
         {
             if ([hiddenTextField isFirstResponder]) {
                 [hiddenTextField resignFirstResponder];
             }
 
-            CGFloat menuWidth = 540;  // Slightly reduced width
-            CGFloat menuHeight = 350; // Slightly reduced height
+            CGFloat menuWidth = 540;  
+            CGFloat menuHeight = 350; 
             CGFloat mx = (view.bounds.size.width - menuWidth) / 2;
             CGFloat my = (view.bounds.size.height - menuHeight) / 2;
             
@@ -504,37 +508,40 @@ void _huy(void *instance) {
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
             ImGui::Begin("CEYLON_MAIN_CONTAINER", &MenDeal, window_flags);
             
-            // ==========================================================
-            // DESIGN: TRANSPARENT BACKGROUND WATERMARK (CEYLON CHEAT)
-            // ==========================================================
+            // --- HUGE TRANSPARENT WATERMARK DESIGN ---
             ImDrawList* internalDrawList = ImGui::GetWindowDrawList();
             ImVec2 windowPos = ImGui::GetWindowPos();
             ImVec2 windowSize = ImGui::GetWindowSize();
             
-            // Menu එක මැද ලස්සනට පෙනෙන Transparent Watermark එකක් මෙතනින් නිර්මාණය වේ
             std::string watermarkText = "CEYLON CHEAT";
-            font->Scale = 28.f / font->FontSize; // නම කැපී පෙනීමට Font Size එක තාවකාලිකව වැඩි කිරීම
+            font->Scale = 55.f / font->FontSize; // Huge scale for watermark
             ImVec2 textSize = ImGui::CalcTextSize(watermarkText.c_str());
             
             ImVec2 textPos = ImVec2(
-                windowPos.x + (windowSize.x - textSize.x) * 0.5f + 50.0f, // Sidebar එකට අහුවෙන්නේ නැතිවෙන්න offset කර ඇත
+                windowPos.x + (windowSize.x - textSize.x) * 0.5f + 40.0f,
                 windowPos.y + (windowSize.y - textSize.y) * 0.5f
             );
             
-            // ඉතා අඩු opacity (0.04f) එකක් දමා ඇති නිසා මෙනු එකේ වැඩ වලට බාධාවක් නොවේ
-            internalDrawList->AddText(font, 28.f, textPos, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.04f), watermarkText.c_str());
-            font->Scale = 14.f / font->FontSize; // මෙනු එකේ සාමාන්‍ය අකුරු සඳහා නැවත Reset කිරීම
-            // ==========================================================
+            internalDrawList->AddText(font, 55.f, textPos, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.06f), watermarkText.c_str());
+            font->Scale = 14.f / font->FontSize; // Reset to normal
+            // ------------------------------------------
 
             ImGui::Columns(2, "MainLayout", false);
-            ImGui::SetColumnWidth(0, 130.0f); 
+            ImGui::SetColumnWidth(0, 140.0f); 
             
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.05f, 0.06f, 0.09f, 0.90f)); 
             ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
             
             ImGui::Spacing();
+            
+            // Bigger Title on Top Left sidebar
+            font->Scale = 16.f / font->FontSize;
             ImGui::SetCursorPosX(10);
-            ImGui::TextColored(customAccent, "CEYLON CHEAT");
+            ImGui::TextColored(customAccent, "CEYLON");
+            ImGui::SetCursorPosX(10);
+            ImGui::TextColored(customAccent, "CHEAT");
+            font->Scale = 14.f / font->FontSize;
+
             ImGui::Separator();
             ImGui::Spacing();
 
@@ -556,7 +563,7 @@ void _huy(void *instance) {
                 }
 
                 ImGui::SetCursorPosX(8);
-                if (ImGui::Button(tabs[i], ImVec2(110, 38))) {
+                if (ImGui::Button(tabs[i], ImVec2(120, 38))) {
                     activeTab = i;
                 }
                 ImGui::PopStyleColor(4);
@@ -587,7 +594,7 @@ void _huy(void *instance) {
             ImGui::Separator();
             ImGui::Spacing();
 
-            // TAB 1: AIMBOT (Dynamic Switch Logic)
+            // TAB 1: AIMBOT
             if (activeTab == 0) { 
                 ImGui::Checkbox("Master Switch", &masterAimbot);
                 
@@ -624,7 +631,6 @@ void _huy(void *instance) {
                 ImGui::SliderFloat("##Dist_Slider", &maxDistance, 10.0f, 500.0f, "");
                 
                 ImGui::Spacing();
-                // Dynamic conditional slider logic based on Selected Method
                 if (selectedAimMethod == 0) {
                     ImGui::Text("Hit chance"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.0f%%", hitChance);
                     ImGui::SetNextItemWidth(-1);
@@ -666,7 +672,7 @@ void _huy(void *instance) {
                 ImGui::Checkbox("Teleport enemies to you", &teleportEnemies);
             } 
             
-            // TAB 4: SETTINGS (Color Picker wheel added)
+            // TAB 4: SETTINGS 
             else if (activeTab == 3) { 
                 ImGui::TextColored(customAccent, "SYSTEM & THEME SETTINGS");
                 ImGui::Separator();
@@ -680,10 +686,13 @@ void _huy(void *instance) {
                 ImGui::Separator();
                 ImGui::Spacing();
                 
-                // Professional Color Wheel / Balance Picker Option
                 ImGui::Text("Menu Accent Color balance:");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, ImGuiColorEditFlags_PickerHueWheel | ImGuiColorEditFlags_AlphaBar);
+                // FIXED COLOR PICKER - NO INPUTS AND CLEAN DESIGN
+                ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, 
+                                  ImGuiColorEditFlags_PickerHueWheel | 
+                                  ImGuiColorEditFlags_AlphaBar | 
+                                  ImGuiColorEditFlags_NoInputs | 
+                                  ImGuiColorEditFlags_NoLabel);
                 
                 ImGui::Spacing();
                 ImGui::Text("Menu Transparency:");
