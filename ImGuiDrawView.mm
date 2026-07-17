@@ -38,12 +38,11 @@
 // ==========================================
 // SAFE MEMORY PATCHING FUNCTIONS
 // ==========================================
-// Memory එකට ආරක්ෂිතව bytes ලියන function එක
 void safePatchMemory(uintptr_t address, const uint8_t* bytes, size_t size) {
     if (address == 0) return;
     
-    // iOS Memory Protection එක Bypass කිරීම (Read/Write/Execute ලබාදීම)
-    vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_WRITE | PROT_COPY);
+    // iOS Memory Protection එක Bypass කිරීම (PROT_COPY ඉවත් කර නිවැරදි කර ඇත)
+    vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_WRITE);
     
     // නව bytes ටික memory එකට ලියන්න
     memcpy((void*)address, bytes, size);
@@ -57,16 +56,18 @@ uintptr_t get_GameModule_Base(const char* moduleName) {
     for (uint32_t i = 0; i < count; i++) {
         const char* name = _dyld_get_image_name(i);
         if (name && strstr(name, moduleName)) {
-            return _dyld_get_image_header(i);
+            // Type cast එකක් යොදා නිවැරදි කර ඇත
+            return (uintptr_t)_dyld_get_image_header(i);
         }
     }
     return 0;
 }
 
-uintptr_t getRealOffset(uintptr_t offset) {
+// NakanoYotsuba.h ගොනුවේ getRealOffset දැනටමත් අඩංගු නිසා මෙහි ගැටලුවක් මතු වුවහොත් මෙම ශ්‍රිතය මකා දැමිය හැක
+uintptr_t getLocalRealOffset(uintptr_t offset) {
     static uintptr_t base = 0;
     if (base == 0) {
-        base = get_GameModule_Base("GameAssembly.dylib"); // Unity Game එකක් නම්
+        base = get_GameModule_Base("GameAssembly.dylib"); 
     }
     return base + offset;
 }
@@ -162,30 +163,25 @@ static float menuTransparency = 0.90f;
 static UITextField *hiddenTextField = nil;
 
 // ==========================================
-// HACK LOGIC FUNCTION (UPDATED)
+// HACK LOGIC FUNCTION
 // ==========================================
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
 
-    // Aimbot & ESP සාමාන්‍යයෙන් මතුවන තැන් (පසුව Hook කිරීමට)
     if (masterAimbot && aimbotEnable) { } 
     if (enemyEsp) { }
 
-    // ----------------------------------------------------
-    // MEMORY PATCHES (මෙතනට ඔයාගේ Hex Codes දාන්න)
-    // ----------------------------------------------------
+    // Ambiguous Error එක මඟහැරීමට මෙහි getRealOffset වෙනුවට getLocalRealOffset යොදා ඇත
     
     // 1. No Recoil
     static bool lastNoRecoil = false;
     if (noRecoil != lastNoRecoil) {
-        uintptr_t addr = getRealOffset(OFFSET_NO_RECOIL);
+        uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
         if (noRecoil) {
-            // ON කරද්දී දාන්න ඕන Hex Bytes (උදා: 4 bytes)
-            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; // <-- ඔයාගේ Hacked Hex දාන්න
+            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            // OFF කරද්දී දාන්න ඕන මුල් Hex Bytes (Original)
-            const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; // <-- Original Hex දාන්න
+            const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastNoRecoil = noRecoil;
@@ -194,12 +190,12 @@ void UpdateHacks() {
     // 2. Fast Swap
     static bool lastFastSwap = false;
     if (fastSwap != lastFastSwap) {
-        uintptr_t addr = getRealOffset(OFFSET_FAST_SWAP);
+        uintptr_t addr = getLocalRealOffset(OFFSET_FAST_SWAP);
         if (fastSwap) {
-            const uint8_t patch[] = { 0x00, 0x00, 0x00, 0x00 }; // <-- Hacked Hex
+            const uint8_t patch[] = { 0x00, 0x00, 0x00, 0x00 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; // <-- Original Hex
+            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastSwap = fastSwap;
@@ -208,12 +204,12 @@ void UpdateHacks() {
     // 3. Fast Reload
     static bool lastFastReload = false;
     if (fastReload != lastFastReload) {
-        uintptr_t addr = getRealOffset(OFFSET_FAST_RELOAD);
+        uintptr_t addr = getLocalRealOffset(OFFSET_FAST_RELOAD);
         if (fastReload) {
-            const uint8_t patch[] = { 0x00, 0x00, 0x00, 0x00 }; // <-- Hacked Hex
+            const uint8_t patch[] = { 0x00, 0x00, 0x00, 0x00 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; // <-- Original Hex
+            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastReload = fastReload;
@@ -559,7 +555,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::NextColumn();
             
             ImGui::BeginChild("ContentArea", ImVec2(0, 0), false);
-            // Tab contents rendering according to user variables (Aimbot, Visuals, Misc, Settings)
             if (activeTab == 0) {
                 ImGui::Checkbox("Master Switch", &masterAimbot);
                 ImGui::Checkbox("Enabled", &aimbotEnable);
