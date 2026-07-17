@@ -71,7 +71,7 @@ static bool fastSwap = false;
 static bool fastReload = false;
 static bool teleportEnemies = false;
 
-static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // Neon Orange Theme (From screenshot)
+static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // Neon Orange Theme
 static float menuTransparency = 0.90f;
 static bool aimbot_active = false;
 static bool esp_active = false;
@@ -89,7 +89,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     pasteboard.string = [NSString stringWithUTF8String:text];
 }
 
-@interface ImGuiDrawView () <MTKViewDelegate>
+// Added UITextFieldDelegate to handle Keyboard Typing
+@interface ImGuiDrawView () <MTKViewDelegate, UITextFieldDelegate>
 @property (nonatomic, strong) id <MTLDevice> device;
 @property (nonatomic, strong) id <MTLCommandQueue> commandQueue;
 @end
@@ -162,7 +163,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             }
         }
         
-        // Auto-login සඳහා Save කරගන්නවා
+        // Auto-login
         [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"COSMOS_USER"];
         [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"COSMOS_PASS"];
         [[NSUserDefaults standardUserDefaults] synchronize];
@@ -258,12 +259,51 @@ void _huy(void *instance) {
     self.mtkView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
     self.mtkView.clipsToBounds = YES;
 
-    hiddenTextField = [[UITextField alloc] initWithFrame:CGRectZero];
+    // --- KEYBOARD & PASTE FIX ---
+    // Moved hiddenTextField outside screen bounds so UIMenuController works properly
+    hiddenTextField = [[UITextField alloc] initWithFrame:CGRectMake(-100, -100, 10, 10)];
     hiddenTextField.keyboardType = UIKeyboardTypeASCIICapable;
-    hiddenTextField.hidden = YES;
+    hiddenTextField.autocorrectionType = UITextAutocorrectionTypeNo;
+    hiddenTextField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+    hiddenTextField.delegate = self;
     [self.view addSubview:hiddenTextField];
 
+    // Add Long Press Gesture for Native Paste
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+    [self.view addGestureRecognizer:longPress];
+    // ----------------------------
+
     [self tryAutoLogin];
+}
+
+#pragma mark - Keyboard Input Injection
+- (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
+    ImGuiIO& io = ImGui::GetIO();
+    
+    if (string.length == 0) {
+        // Handle Backspace
+        io.AddKeyEvent(ImGuiKey_Backspace, true);
+        io.AddKeyEvent(ImGuiKey_Backspace, false);
+    } else {
+        // Handle Typing & Pasting
+        for (int i = 0; i < string.length; i++) {
+            io.AddInputCharacter([string characterAtIndex:i]);
+        }
+    }
+    return NO; // Keep the actual text field empty
+}
+
+#pragma mark - Native Long Press (Paste)
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.WantTextInput) {
+            UIMenuController *menu = [UIMenuController sharedMenuController];
+            CGPoint location = [gesture locationInView:self.view];
+            [menu setTargetRect:CGRectMake(location.x, location.y, 1, 1) inView:self.view];
+            [menu setMenuVisible:YES animated:YES];
+        }
+    }
 }
 
 #pragma mark - Touch Events
@@ -299,7 +339,6 @@ void _huy(void *instance) {
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 
 #pragma mark - Rendering & Layouts
-
 - (void)drawInMTKView:(MTKView*)view
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -310,6 +349,17 @@ void _huy(void *instance) {
     io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
     io.DeltaTime = 1 / float(view.preferredFramesPerSecond ?: 120);
     
+    // --- KEYBOARD SYNC LOGIC ---
+    static bool wasWantTextInput = false;
+    if (io.WantTextInput && !wasWantTextInput) {
+        [hiddenTextField becomeFirstResponder];
+    } else if (!io.WantTextInput && wasWantTextInput) {
+        [hiddenTextField resignFirstResponder];
+        hiddenTextField.text = @""; // Clear field on dismiss
+    }
+    wasWantTextInput = io.WantTextInput;
+    // ---------------------------
+
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     
     if (!isKeyAuthLogged) {
@@ -465,7 +515,6 @@ void _huy(void *instance) {
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
             ImGui::Begin("COSMOS_MAIN_CONTAINER", &MenDeal, window_flags);
             
-            // Dynamic Columns based on Window Width (අකුරු කැපෙන්නෙ නෑ!)
             ImGui::Columns(2, "MainLayout", false);
             ImGui::SetColumnWidth(0, 140.0f); // Sidebar Width
             
@@ -622,7 +671,6 @@ void _huy(void *instance) {
                 
                 ImGui::Spacing();
                 if (ImGui::Button("Logout Account", ImVec2(-1, 38))) {
-                    // Logout කර saved data මකනවා
                     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_USER"];
                     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_PASS"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
