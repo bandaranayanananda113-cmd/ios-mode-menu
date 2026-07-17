@@ -2,6 +2,7 @@
 #import <MetalKit/MetalKit.h>
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#include <math.h> // 3D Animation Calculations සඳහා
 
 // Imgui library
 #import "Esp/CaptainHook.h"
@@ -26,6 +27,36 @@
 static bool MenDeal = true; 
 
 // ==========================================
+// 3D ANIMATED TEXT RENDERER
+// ==========================================
+static void Draw3DAnimatedText(ImDrawList* drawList, ImFont* font, float fontSize, ImVec2 pos, const char* text, ImVec4 accent, bool isWatermark) {
+    float time = (float)ImGui::GetTime();
+    
+    // Animation Calculations
+    float baseAlpha = isWatermark ? 0.12f : 1.0f;
+    float pulse = (sin(time * 4.0f) + 1.0f) * 0.5f; // Glow effect from 0 to 1
+    int depth = isWatermark ? 3 : 5; // 3D Thickness
+    
+    // Draw 3D Extrusion (Back layers for 3D effect)
+    for (int i = depth; i > 0; i--) {
+        // Floating wave animation on the 3D shadow
+        float offsetX = i + sin(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
+        float offsetY = i + cos(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
+        
+        float shadowAlpha = isWatermark ? 0.05f : 0.4f;
+        drawList->AddText(font, fontSize, ImVec2(pos.x + offsetX, pos.y + offsetY), 
+                          ImColor(10, 10, 15, (int)(shadowAlpha * 255)), text);
+    }
+    
+    // Draw Front Layer with Glowing Pulsating Accent Color
+    float r = accent.x + (1.0f - accent.x) * pulse * 0.4f;
+    float g = accent.y + (1.0f - accent.y) * pulse * 0.4f;
+    float b = accent.z + (1.0f - accent.z) * pulse * 0.4f;
+    
+    drawList->AddText(font, fontSize, pos, ImColor(r, g, b, baseAlpha), text);
+}
+
+// ==========================================
 // KEYAUTH USERPASS CONFIGURATION
 // ==========================================
 static NSString *const kaName = @"EXLITER PRO";
@@ -47,7 +78,7 @@ static bool isAuthenticating = false;
 static bool masterAimbot = false;
 static bool aimbotEnable = false;
 static int selectedAimConfig = 0; 
-static int selectedAimMethod = 0; // 0 = Silent Aim, 1 = Vector Aim
+static int selectedAimMethod = 0; 
 static bool showFovCircle = false;
 static bool ignoreKnocked = false;
 static bool forceLock = false;
@@ -72,7 +103,7 @@ static bool fastSwap = false;
 static bool fastReload = false;
 static bool teleportEnemies = false;
 
-static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // Customizable Theme
+static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; 
 static float menuTransparency = 0.90f;
 
 // Hidden iOS TextField
@@ -162,8 +193,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             }
         }
         
-        [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"CEYLON_USER"];
-        [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"CEYLON_PASS"];
+        [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"STATISTICS_USER"];
+        [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"STATISTICS_PASS"];
         [[NSUserDefaults standardUserDefaults] synchronize];
         
         return YES;
@@ -174,8 +205,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 }
 
 - (void)tryAutoLogin {
-    NSString *savedUser = [[NSUserDefaults standardUserDefaults] stringForKey:@"CEYLON_USER"];
-    NSString *savedPass = [[NSUserDefaults standardUserDefaults] stringForKey:@"CEYLON_PASS"];
+    NSString *savedUser = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_USER"];
+    NSString *savedPass = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_PASS"];
     
     if (savedUser && savedPass) {
         strncpy(usernameInput, [savedUser UTF8String], sizeof(usernameInput) - 1);
@@ -189,8 +220,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 if (success) {
                     isKeyAuthLogged = true;
                 } else {
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_USER"];
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_PASS"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_PASS"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
                 }
             });
@@ -208,6 +239,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
+    
+    io.KeyMap[ImGuiKey_Backspace] = 8;
     
     io.GetClipboardTextFn = GetClipboardTextFn;
     io.SetClipboardTextFn = SetClipboardTextFn;
@@ -260,12 +293,11 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self tryAutoLogin];
 }
 
-// 100% Working Backspace Logic implemented here
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     ImGuiIO& io = ImGui::GetIO();
     
     if (string.length == 0) {
-        holdBackspaceFrames = 3; // Hold backspace for 3 frames to ensure it deletes properly
+        holdBackspaceFrames = 2; 
     } else {
         for (int i = 0; i < string.length; i++) {
             io.AddInputCharacter([string characterAtIndex:i]);
@@ -327,18 +359,11 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
     io.DeltaTime = 1 / float(view.preferredFramesPerSecond ?: 120);
 
-    // Apply backspace fix natively during rendering
     if (holdBackspaceFrames > 0) {
-        io.KeysDown[ImGuiKey_Backspace] = true;
-        if (io.KeyMap[ImGuiKey_Backspace] >= 0 && io.KeyMap[ImGuiKey_Backspace] < 512) {
-            io.KeysDown[io.KeyMap[ImGuiKey_Backspace]] = true;
-        }
+        io.KeysDown[8] = true; 
         holdBackspaceFrames--;
     } else {
-        io.KeysDown[ImGuiKey_Backspace] = false;
-        if (io.KeyMap[ImGuiKey_Backspace] >= 0 && io.KeyMap[ImGuiKey_Backspace] < 512) {
-            io.KeysDown[io.KeyMap[ImGuiKey_Backspace]] = false;
-        }
+        io.KeysDown[8] = false;
     }
     
     static bool wasWantTextInput = false;
@@ -405,8 +430,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         // ==========================================
         if (!isKeyAuthLogged) 
         {
-            CGFloat loginWidth = 400;
-            CGFloat loginHeight = 360; // Increased a bit for larger text space
+            CGFloat loginWidth = 350;  
+            CGFloat loginHeight = 280; 
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
             
@@ -420,16 +445,16 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
             
-            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 60), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
-            drawList->AddLine(ImVec2(pos.x, pos.y + 60), ImVec2(pos.x + loginWidth, pos.y + 60), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 2.0f);
+            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
+            drawList->AddLine(ImVec2(pos.x, pos.y + 65), ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 2.0f);
             
-            // Bigger Title in Login
-            font->Scale = 22.f / font->FontSize; 
+            // 3D ANIMATED NAME IN LOGIN
             ImGui::SetCursorPos(ImVec2(20, 18));
-            ImGui::TextColored(customAccent, "CEYLON CHEAT");
-            font->Scale = 14.f / font->FontSize; // Reset font scale
+            ImVec2 textPos = ImGui::GetCursorScreenPos();
+            Draw3DAnimatedText(drawList, font, 24.0f, textPos, "STATISTICS KING", customAccent, false);
+            ImGui::Dummy(ImVec2(0, 30)); // Space for the custom text
             
-            ImGui::SetCursorPos(ImVec2(20, 42));
+            ImGui::SetCursorPos(ImVec2(20, 48));
             ImGui::TextDisabled("PREMIUM ACCESS");
             
             ImGui::SetCursorPosY(85);
@@ -451,7 +476,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             if (isAuthenticating) {
                 ImGui::Button("Authenticating Please Wait...", ImVec2(-1, 42));
             } else {
-                if (ImGui::Button("Login to System", ImVec2(200, 42))) {
+                if (ImGui::Button("Login to System", ImVec2(-1, 42))) {
                     NSString *uStr = [NSString stringWithUTF8String:usernameInput];
                     NSString *pStr = [NSString stringWithUTF8String:passwordInput];
                     
@@ -472,11 +497,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                     } else {
                         loginErrorMessage = "Username and Password cannot be empty.";
                     }
-                }
-                
-                ImGui::SameLine();
-                if (ImGui::Button("Register/Buy", ImVec2(-1, 42))) {
-                    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://t.me/cosmosdemo"] options:@{} completionHandler:nil];
                 }
             }
             
@@ -506,24 +526,25 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::SetNextWindowSize(ImVec2(menuWidth, menuHeight), ImGuiCond_FirstUseEver); 
             
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
-            ImGui::Begin("CEYLON_MAIN_CONTAINER", &MenDeal, window_flags);
+            ImGui::Begin("STATISTICS_MAIN_CONTAINER", &MenDeal, window_flags);
             
-            // --- HUGE TRANSPARENT WATERMARK DESIGN ---
+            // --- HUGE 3D ANIMATED WATERMARK ---
             ImDrawList* internalDrawList = ImGui::GetWindowDrawList();
             ImVec2 windowPos = ImGui::GetWindowPos();
             ImVec2 windowSize = ImGui::GetWindowSize();
             
-            std::string watermarkText = "CEYLON CHEAT";
-            font->Scale = 55.f / font->FontSize; // Huge scale for watermark
+            std::string watermarkText = "STATISTICS KING";
+            font->Scale = 45.f / font->FontSize; 
             ImVec2 textSize = ImGui::CalcTextSize(watermarkText.c_str());
+            font->Scale = 14.f / font->FontSize; 
             
-            ImVec2 textPos = ImVec2(
+            ImVec2 wmPos = ImVec2(
                 windowPos.x + (windowSize.x - textSize.x) * 0.5f + 40.0f,
                 windowPos.y + (windowSize.y - textSize.y) * 0.5f
             );
             
-            internalDrawList->AddText(font, 55.f, textPos, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.06f), watermarkText.c_str());
-            font->Scale = 14.f / font->FontSize; // Reset to normal
+            // Call the Custom 3D Animation Function for Watermark
+            Draw3DAnimatedText(internalDrawList, font, 45.0f, wmPos, watermarkText.c_str(), customAccent, true);
             // ------------------------------------------
 
             ImGui::Columns(2, "MainLayout", false);
@@ -534,13 +555,11 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             
             ImGui::Spacing();
             
-            // Bigger Title on Top Left sidebar
-            font->Scale = 16.f / font->FontSize;
+            // 3D ANIMATED NAME IN SIDEBAR
             ImGui::SetCursorPosX(10);
-            ImGui::TextColored(customAccent, "CEYLON");
-            ImGui::SetCursorPosX(10);
-            ImGui::TextColored(customAccent, "CHEAT");
-            font->Scale = 14.f / font->FontSize;
+            ImVec2 sidebarTextPos = ImGui::GetCursorScreenPos();
+            Draw3DAnimatedText(internalDrawList, font, 14.0f, sidebarTextPos, "STATISTICS KING", customAccent, false);
+            ImGui::Dummy(ImVec2(0, 20)); // Spacing below text
 
             ImGui::Separator();
             ImGui::Spacing();
@@ -687,7 +706,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::Spacing();
                 
                 ImGui::Text("Menu Accent Color balance:");
-                // FIXED COLOR PICKER - NO INPUTS AND CLEAN DESIGN
                 ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, 
                                   ImGuiColorEditFlags_PickerHueWheel | 
                                   ImGuiColorEditFlags_AlphaBar | 
@@ -701,8 +719,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 
                 ImGui::Spacing();
                 if (ImGui::Button("Logout Account", ImVec2(-1, 38))) {
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_USER"];
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_PASS"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_PASS"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
                     isKeyAuthLogged = false;
                     memset(usernameInput, 0, sizeof(usernameInput));
