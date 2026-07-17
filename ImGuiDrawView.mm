@@ -42,12 +42,10 @@ static bool MenDeal = true;
 #define OFFSET_ESP_BONE        0x0000000
 
 // ==========================================
-// SAFE MEMORY PATCHING FUNCTIONS (Errors Fixed)
+// SAFE MEMORY PATCHING FUNCTIONS 
 // ==========================================
 void safePatchMemory(uintptr_t address, const uint8_t* bytes, size_t size) {
     if (address == 0) return;
-    
-    // PROT_COPY ඉවත් කර නිවැරදි කර ඇත
     vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_WRITE);
     memcpy((void*)address, bytes, size);
     vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_EXEC);
@@ -58,14 +56,12 @@ uintptr_t get_GameModule_Base(const char* moduleName) {
     for (uint32_t i = 0; i < count; i++) {
         const char* name = _dyld_get_image_name(i);
         if (name && strstr(name, moduleName)) {
-            // Type Cast error එක නිවැරදි කර ඇත
             return (uintptr_t)_dyld_get_image_header(i);
         }
     }
     return 0;
 }
 
-// .h file එකත් එක්ක ගැටෙන්නේ නැති වෙන්න නම getLocalRealOffset ලෙස වෙනස් කර ඇත
 uintptr_t getLocalRealOffset(uintptr_t offset) {
     static uintptr_t base = 0;
     if (base == 0) {
@@ -119,7 +115,7 @@ static bool isAuthenticating = false;
 // ==========================================
 // PROFESSIONAL CHEAT VARIABLES
 // ==========================================
-static bool streamProof = true; // <-- Default ON (Menu එක දාද්දිම ON)
+static bool streamProof = true; // Default ON (Can be changed in UI now)
 static bool masterAimbot = false;
 static bool aimbotEnable = false;
 static int selectedAimConfig = 0; 
@@ -175,15 +171,15 @@ void UpdateHacks() {
         if (espBox)  { /* Box ESP Hook */ }
     }
 
-    // No Recoil Memory Patching Logic (දැන් Error නැතිව වැඩ කරයි)
+    // No Recoil Memory Patching Logic 
     static bool lastNoRecoil = false;
     if (noRecoil != lastNoRecoil) {
         uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
         if (noRecoil) {
-            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; // Placeholder Hex 
+            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; // Placeholder Hex
+            const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastNoRecoil = noRecoil;
@@ -349,22 +345,23 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     // Stream Proof Container (Secure Text Field)
     self.secureContainerField = [[UITextField alloc] initWithFrame:self.view.bounds];
     self.secureContainerField.backgroundColor = [UIColor clearColor];
-    self.secureContainerField.secureTextEntry = streamProof; // Stream proof setting
-    self.secureContainerField.userInteractionEnabled = YES;
+    self.secureContainerField.secureTextEntry = streamProof;
+    // TOUCH FIX: මෙතන userInteractionEnabled = NO කරන්න අනිවාර්යයි! 
+    // එතකොට Touches ටික self.view එකට ගිහින් ImGui එකට අහුවෙනවා.
+    self.secureContainerField.userInteractionEnabled = NO;
     [self.view addSubview:self.secureContainerField];
-    
-    // Get inner secure layer to place MTKView
-    UIView *secureLayer = self.secureContainerField.subviews.firstObject;
-    if (!secureLayer) secureLayer = self.secureContainerField;
-    secureLayer.userInteractionEnabled = YES;
     
     // Metal View for ImGui
     self.mtkViewObj = [[MTKView alloc] initWithFrame:self.view.bounds];
     self.mtkViewObj.clearColor = MTLClearColorMake(0, 0, 0, 0);
     self.mtkViewObj.backgroundColor = [UIColor clearColor];
     self.mtkViewObj.clipsToBounds = YES;
+    self.mtkViewObj.userInteractionEnabled = NO; // Touch block නොකරන්න
     
-    [secureLayer addSubview:self.mtkViewObj]; // Insert Metal view inside Secure Field
+    // Insert Metal view inside Secure Field Layer
+    UIView *secureLayer = self.secureContainerField.subviews.firstObject;
+    if (!secureLayer) secureLayer = self.secureContainerField;
+    [secureLayer addSubview:self.mtkViewObj]; 
 }
 
 - (void)viewDidLoad {
@@ -384,6 +381,19 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self.view addGestureRecognizer:longPress];
 
     [self tryAutoLogin];
+}
+
+// Runtime එකේදී Menu එක අතුරුදහන් නොවී Stream proof ON/OFF කරන Function එක
+- (void)updateStreamProofState {
+    if (self.secureContainerField.secureTextEntry == streamProof) return;
+    
+    // Menu එක ගලවලා Stream proof state එක මාරු කරලා ආයෙත් අලවනවා
+    [self.mtkViewObj removeFromSuperview];
+    self.secureContainerField.secureTextEntry = streamProof;
+    
+    UIView *secureLayer = self.secureContainerField.subviews.firstObject;
+    if (!secureLayer) secureLayer = self.secureContainerField;
+    [secureLayer addSubview:self.mtkViewObj];
 }
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
@@ -456,8 +466,12 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     }
     wasWantTextInput = io.WantTextInput;
     
-    // Update iOS Secure Container State (Stream Proof Enable/Disable dynamically)
-    self.secureContainerField.secureTextEntry = streamProof;
+    // Update iOS Secure Container State (Safe implementation)
+    if (self.secureContainerField.secureTextEntry != streamProof) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateStreamProofState];
+        });
+    }
 
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     
@@ -516,7 +530,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         if (!isKeyAuthLogged) 
         {
             CGFloat loginWidth = 360;  
-            CGFloat loginHeight = 280; 
+            CGFloat loginHeight = 330; // Height එක ටිකක් වැඩි කරා Checkbox එකට ඉඩ දෙන්න
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
             
@@ -561,6 +575,12 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 memset(passwordInput, 0, sizeof(passwordInput));
             }
             
+            ImGui::Spacing();
+            ImGui::Separator();
+            
+            // === අලුතින් එකතු කරපු Stream Proof Checkbox එක (Login Screen) ===
+            ImGui::Spacing();
+            ImGui::Checkbox("Stream Proof (Hide Menu from Screen Share)", &streamProof);
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
