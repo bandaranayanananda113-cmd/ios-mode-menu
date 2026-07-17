@@ -260,7 +260,6 @@ void _huy(void *instance) {
     self.mtkView.clipsToBounds = YES;
 
     // --- KEYBOARD & PASTE FIX ---
-    // Moved hiddenTextField outside screen bounds so UIMenuController works properly
     hiddenTextField = [[UITextField alloc] initWithFrame:CGRectMake(-100, -100, 10, 10)];
     hiddenTextField.keyboardType = UIKeyboardTypeASCIICapable;
     hiddenTextField.autocorrectionType = UITextAutocorrectionTypeNo;
@@ -281,16 +280,26 @@ void _huy(void *instance) {
     ImGuiIO& io = ImGui::GetIO();
     
     if (string.length == 0) {
-        // Handle Backspace
-        io.AddKeyEvent(ImGuiKey_Backspace, true);
-        io.AddKeyEvent(ImGuiKey_Backspace, false);
+        // Handle Backspace using KeysDown array for older ImGui versions
+        int backspaceKey = io.KeyMap[ImGuiKey_Backspace];
+        if (backspaceKey >= 0 && backspaceKey < 512) {
+            io.KeysDown[backspaceKey] = true;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                io.KeysDown[backspaceKey] = false;
+            });
+        } else {
+            io.KeysDown[ImGuiKey_Backspace] = true;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                io.KeysDown[ImGuiKey_Backspace] = false;
+            });
+        }
     } else {
         // Handle Typing & Pasting
         for (int i = 0; i < string.length; i++) {
             io.AddInputCharacter([string characterAtIndex:i]);
         }
     }
-    return NO; // Keep the actual text field empty
+    return NO; 
 }
 
 #pragma mark - Native Long Press (Paste)
@@ -355,7 +364,7 @@ void _huy(void *instance) {
         [hiddenTextField becomeFirstResponder];
     } else if (!io.WantTextInput && wasWantTextInput) {
         [hiddenTextField resignFirstResponder];
-        hiddenTextField.text = @""; // Clear field on dismiss
+        hiddenTextField.text = @""; 
     }
     wasWantTextInput = io.WantTextInput;
     // ---------------------------
