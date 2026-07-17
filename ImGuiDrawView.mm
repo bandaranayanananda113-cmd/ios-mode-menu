@@ -46,8 +46,8 @@ static bool isAuthenticating = false;
 // ==========================================
 static bool masterAimbot = false;
 static bool aimbotEnable = false;
-static int selectedAimConfig = 0; // Global, Option 2, etc.
-static int selectedAimMethod = 0; // Silent, Vectored, etc.
+static int selectedAimConfig = 0; 
+static int selectedAimMethod = 0; // 0 = Silent Aim, 1 = Vector Aim
 static bool showFovCircle = false;
 static bool ignoreKnocked = false;
 static bool forceLock = false;
@@ -55,6 +55,7 @@ static int selectedHitbox = 0;
 static float fovRadius = 30.0f;
 static float maxDistance = 100.0f;
 static float hitChance = 61.0f;
+static float lockSpeed = 5.0f; // New variable for Vector Aim
 
 static bool enemyEsp = false;
 static bool espLine = false;
@@ -71,7 +72,7 @@ static bool fastSwap = false;
 static bool fastReload = false;
 static bool teleportEnemies = false;
 
-static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // Neon Orange Theme
+static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // Customizable Theme
 static float menuTransparency = 0.90f;
 static bool aimbot_active = false;
 static bool esp_active = false;
@@ -89,7 +90,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     pasteboard.string = [NSString stringWithUTF8String:text];
 }
 
-// Added UITextFieldDelegate to handle Keyboard Typing
 @interface ImGuiDrawView () <MTKViewDelegate, UITextFieldDelegate>
 @property (nonatomic, strong) id <MTLDevice> device;
 @property (nonatomic, strong) id <MTLCommandQueue> commandQueue;
@@ -101,7 +101,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 - (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
     
-    // 1. Init Session
     NSMutableURLRequest *initRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [initRequest setHTTPMethod:@"POST"];
     NSString *initPostData = [NSString stringWithFormat:@"type=init&name=%@&ownerid=%@&secret=%@&ver=%@", kaName, kaOwnerId, kaSecret, kaVersion];
@@ -127,7 +126,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     NSString *sessionId = initJson[@"sessionid"];
     if (!sessionId) return NO;
     
-    // 2. Login with Username & Password
     NSMutableURLRequest *loginRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [loginRequest setHTTPMethod:@"POST"];
     NSString *loginPostData = [NSString stringWithFormat:@"type=login&username=%@&pass=%@&sessionid=%@&name=%@&ownerid=%@", user, pass, sessionId, kaName, kaOwnerId];
@@ -163,9 +161,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             }
         }
         
-        // Auto-login
-        [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"COSMOS_USER"];
-        [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"COSMOS_PASS"];
+        // Save details securely on successful authentication
+        [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"CEYLON_USER"];
+        [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"CEYLON_PASS"];
         [[NSUserDefaults standardUserDefaults] synchronize];
         
         return YES;
@@ -176,8 +174,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 }
 
 - (void)tryAutoLogin {
-    NSString *savedUser = [[NSUserDefaults standardUserDefaults] stringForKey:@"COSMOS_USER"];
-    NSString *savedPass = [[NSUserDefaults standardUserDefaults] stringForKey:@"COSMOS_PASS"];
+    NSString *savedUser = [[NSUserDefaults standardUserDefaults] stringForKey:@"CEYLON_USER"];
+    NSString *savedPass = [[NSUserDefaults standardUserDefaults] stringForKey:@"CEYLON_PASS"];
     
     if (savedUser && savedPass) {
         strncpy(usernameInput, [savedUser UTF8String], sizeof(usernameInput) - 1);
@@ -191,8 +189,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 if (success) {
                     isKeyAuthLogged = true;
                 } else {
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_USER"];
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_PASS"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_USER"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_PASS"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
                 }
             });
@@ -259,7 +257,6 @@ void _huy(void *instance) {
     self.mtkView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
     self.mtkView.clipsToBounds = YES;
 
-    // --- KEYBOARD & PASTE FIX ---
     hiddenTextField = [[UITextField alloc] initWithFrame:CGRectMake(-100, -100, 10, 10)];
     hiddenTextField.keyboardType = UIKeyboardTypeASCIICapable;
     hiddenTextField.autocorrectionType = UITextAutocorrectionTypeNo;
@@ -267,20 +264,16 @@ void _huy(void *instance) {
     hiddenTextField.delegate = self;
     [self.view addSubview:hiddenTextField];
 
-    // Add Long Press Gesture for Native Paste
     UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
     [self.view addGestureRecognizer:longPress];
-    // ----------------------------
 
     [self tryAutoLogin];
 }
 
-#pragma mark - Keyboard Input Injection
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     ImGuiIO& io = ImGui::GetIO();
     
     if (string.length == 0) {
-        // Handle Backspace using KeysDown array for older ImGui versions
         int backspaceKey = io.KeyMap[ImGuiKey_Backspace];
         if (backspaceKey >= 0 && backspaceKey < 512) {
             io.KeysDown[backspaceKey] = true;
@@ -294,7 +287,6 @@ void _huy(void *instance) {
             });
         }
     } else {
-        // Handle Typing & Pasting
         for (int i = 0; i < string.length; i++) {
             io.AddInputCharacter([string characterAtIndex:i]);
         }
@@ -302,7 +294,6 @@ void _huy(void *instance) {
     return NO; 
 }
 
-#pragma mark - Native Long Press (Paste)
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state == UIGestureRecognizerStateBegan) {
         ImGuiIO& io = ImGui::GetIO();
@@ -315,7 +306,6 @@ void _huy(void *instance) {
     }
 }
 
-#pragma mark - Touch Events
 - (void)updateIOWithTouchEvent:(UIEvent *)event
 {
     UITouch *anyTouch = event.allTouches.anyObject;
@@ -347,7 +337,6 @@ void _huy(void *instance) {
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 
-#pragma mark - Rendering & Layouts
 - (void)drawInMTKView:(MTKView*)view
 {
     ImGuiIO& io = ImGui::GetIO();
@@ -358,7 +347,6 @@ void _huy(void *instance) {
     io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
     io.DeltaTime = 1 / float(view.preferredFramesPerSecond ?: 120);
     
-    // --- KEYBOARD SYNC LOGIC ---
     static bool wasWantTextInput = false;
     if (io.WantTextInput && !wasWantTextInput) {
         [hiddenTextField becomeFirstResponder];
@@ -367,7 +355,6 @@ void _huy(void *instance) {
         hiddenTextField.text = @""; 
     }
     wasWantTextInput = io.WantTextInput;
-    // ---------------------------
 
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     
@@ -386,16 +373,15 @@ void _huy(void *instance) {
         ImGui_ImplMetal_NewFrame(renderPassDescriptor);
         ImGui::NewFrame();
         
-        // Professional Style Themes
         ImGuiStyle* style = &ImGui::GetStyle();
         style->WindowRounding = 12.0f;       
         style->FrameRounding = 6.0f;        
         style->GrabRounding = 10.0f;
         style->PopupRounding = 6.0f;
         style->ChildRounding = 8.0f;
-        style->WindowPadding = ImVec2(16, 16); 
-        style->FramePadding = ImVec2(12, 10);
-        style->ItemSpacing = ImVec2(10, 12);
+        style->WindowPadding = ImVec2(14, 14); 
+        style->FramePadding = ImVec2(10, 8);
+        style->ItemSpacing = ImVec2(10, 10);
         style->WindowBorderSize = 1.0f; 
         style->FrameBorderSize = 1.0f;
 
@@ -420,13 +406,11 @@ void _huy(void *instance) {
         ImFont* font = ImGui::GetFont();
         font->Scale = 14.f / font->FontSize;
         
-        // ==========================================
-        // SCREEN 1: MODERN LOGIN (USERNAME/PASSWORD)
-        // ==========================================
+        // SCREEN 1: LOGIN
         if (!isKeyAuthLogged) 
         {
-            CGFloat loginWidth = 420;
-            CGFloat loginHeight = 360;
+            CGFloat loginWidth = 400;
+            CGFloat loginHeight = 340;
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
             
@@ -439,23 +423,21 @@ void _huy(void *instance) {
             
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
-            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 45), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_Top);
+            // All-corner rounding fix applied here
+            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 45), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
             drawList->AddLine(ImVec2(pos.x, pos.y + 45), ImVec2(pos.x + loginWidth, pos.y + 45), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 1.0f);
             
-            // Header
             ImGui::SetCursorPos(ImVec2(20, 14));
-            ImGui::TextColored(customAccent, "COSMOS PREMIUM - SECURE LOGIN");
+            ImGui::TextColored(customAccent, "CEYLON CHEAT - SECURE LOGIN");
             
             ImGui::SetCursorPosY(65);
             
-            // Username Field
             ImGui::TextDisabled("Username:");
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##UserField", usernameInput, IM_ARRAYSIZE(usernameInput));
             
             ImGui::Spacing();
             
-            // Password Field
             ImGui::TextDisabled("Password:");
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##PassField", passwordInput, IM_ARRAYSIZE(passwordInput), ImGuiInputTextFlags_Password);
@@ -467,7 +449,7 @@ void _huy(void *instance) {
             if (isAuthenticating) {
                 ImGui::Button("Authenticating Please Wait...", ImVec2(-1, 42));
             } else {
-                if (ImGui::Button("Login to System", ImVec2(220, 42))) {
+                if (ImGui::Button("Login to System", ImVec2(200, 42))) {
                     NSString *uStr = [NSString stringWithUTF8String:usernameInput];
                     NSString *pStr = [NSString stringWithUTF8String:passwordInput];
                     
@@ -504,17 +486,15 @@ void _huy(void *instance) {
             ImGui::End();
         } 
         
-        // ==========================================
-        // SCREEN 2: PROFESSIONAL MAIN MENU
-        // ==========================================
+        // SCREEN 2: MAIN MENU (Compact sizes applied)
         else if (MenDeal == true) 
         {
             if ([hiddenTextField isFirstResponder]) {
                 [hiddenTextField resignFirstResponder];
             }
 
-            CGFloat menuWidth = 580;
-            CGFloat menuHeight = 390;
+            CGFloat menuWidth = 540;  // Slightly reduced width
+            CGFloat menuHeight = 350; // Slightly reduced height
             CGFloat mx = (view.bounds.size.width - menuWidth) / 2;
             CGFloat my = (view.bounds.size.height - menuHeight) / 2;
             
@@ -522,18 +502,39 @@ void _huy(void *instance) {
             ImGui::SetNextWindowSize(ImVec2(menuWidth, menuHeight), ImGuiCond_FirstUseEver); 
             
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
-            ImGui::Begin("COSMOS_MAIN_CONTAINER", &MenDeal, window_flags);
+            ImGui::Begin("CEYLON_MAIN_CONTAINER", &MenDeal, window_flags);
             
+            // ==========================================================
+            // DESIGN: TRANSPARENT BACKGROUND WATERMARK (CEYLON CHEAT)
+            // ==========================================================
+            ImDrawList* internalDrawList = ImGui::GetWindowDrawList();
+            ImVec2 windowPos = ImGui::GetWindowPos();
+            ImVec2 windowSize = ImGui::GetWindowSize();
+            
+            // Menu එක මැද ලස්සනට පෙනෙන Transparent Watermark එකක් මෙතනින් නිර්මාණය වේ
+            std::string watermarkText = "CEYLON CHEAT";
+            font->Scale = 28.f / font->FontSize; // නම කැපී පෙනීමට Font Size එක තාවකාලිකව වැඩි කිරීම
+            ImVec2 textSize = ImGui::CalcTextSize(watermarkText.c_str());
+            
+            ImVec2 textPos = ImVec2(
+                windowPos.x + (windowSize.x - textSize.x) * 0.5f + 50.0f, // Sidebar එකට අහුවෙන්නේ නැතිවෙන්න offset කර ඇත
+                windowPos.y + (windowSize.y - textSize.y) * 0.5f
+            );
+            
+            // ඉතා අඩු opacity (0.04f) එකක් දමා ඇති නිසා මෙනු එකේ වැඩ වලට බාධාවක් නොවේ
+            internalDrawList->AddText(font, 28.f, textPos, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.04f), watermarkText.c_str());
+            font->Scale = 14.f / font->FontSize; // මෙනු එකේ සාමාන්‍ය අකුරු සඳහා නැවත Reset කිරීම
+            // ==========================================================
+
             ImGui::Columns(2, "MainLayout", false);
-            ImGui::SetColumnWidth(0, 140.0f); // Sidebar Width
+            ImGui::SetColumnWidth(0, 130.0f); 
             
-            // SIDEBAR CHILD
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.05f, 0.06f, 0.09f, 0.90f)); 
             ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
             
             ImGui::Spacing();
-            ImGui::SetCursorPosX(15);
-            ImGui::TextColored(customAccent, "COSMOS");
+            ImGui::SetCursorPosX(10);
+            ImGui::TextColored(customAccent, "CEYLON CHEAT");
             ImGui::Separator();
             ImGui::Spacing();
 
@@ -555,7 +556,7 @@ void _huy(void *instance) {
                 }
 
                 ImGui::SetCursorPosX(8);
-                if (ImGui::Button(tabs[i], ImVec2(120, 42))) {
+                if (ImGui::Button(tabs[i], ImVec2(110, 38))) {
                     activeTab = i;
                 }
                 ImGui::PopStyleColor(4);
@@ -566,10 +567,8 @@ void _huy(void *instance) {
 
             ImGui::NextColumn();
             
-            // CONTENT AREA CHILD
             ImGui::BeginChild("ContentArea", ImVec2(0, 0), false);
             
-            // Header of Active Tab
             ImGui::Spacing();
             if (activeTab == 0) {
                 ImGui::TextColored(customAccent, "AIMBOT CONFIGURATION");
@@ -588,7 +587,7 @@ void _huy(void *instance) {
             ImGui::Separator();
             ImGui::Spacing();
 
-            // TAB 1: AIMBOT
+            // TAB 1: AIMBOT (Dynamic Switch Logic)
             if (activeTab == 0) { 
                 ImGui::Checkbox("Master Switch", &masterAimbot);
                 
@@ -600,7 +599,7 @@ void _huy(void *instance) {
                 ImGui::Checkbox("Enabled", &aimbotEnable);
                 
                 ImGui::Text("Aiming method");
-                const char* aimMethods[] = { "Silent aimbot", "Vectored", "In-Game" };
+                const char* aimMethods[] = { "Silent aimbot", "Vector aim" };
                 ImGui::SetNextItemWidth(-1);
                 ImGui::Combo("##AimMethod", &selectedAimMethod, aimMethods, IM_ARRAYSIZE(aimMethods));
                 
@@ -625,12 +624,19 @@ void _huy(void *instance) {
                 ImGui::SliderFloat("##Dist_Slider", &maxDistance, 10.0f, 500.0f, "");
                 
                 ImGui::Spacing();
-                ImGui::Text("Hit chance"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.0f%%", hitChance);
-                ImGui::SetNextItemWidth(-1);
-                ImGui::SliderFloat("##Hit_Slider", &hitChance, 1.0f, 100.0f, "");
+                // Dynamic conditional slider logic based on Selected Method
+                if (selectedAimMethod == 0) {
+                    ImGui::Text("Hit chance"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.0f%%", hitChance);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##Hit_Slider", &hitChance, 1.0f, 100.0f, "");
+                } else if (selectedAimMethod == 1) {
+                    ImGui::Text("Lock speed"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1f", lockSpeed);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##Lock_Slider", &lockSpeed, 1.0f, 20.0f, "");
+                }
             } 
             
-            // TAB 2: VISUALS (ESP)
+            // TAB 2: VISUALS
             else if (activeTab == 1) { 
                 ImGui::Checkbox("Enemy ESP", &enemyEsp);
                 ImGui::Checkbox("Line", &espLine);
@@ -660,7 +666,7 @@ void _huy(void *instance) {
                 ImGui::Checkbox("Teleport enemies to you", &teleportEnemies);
             } 
             
-            // TAB 4: SETTINGS & ACCOUNT
+            // TAB 4: SETTINGS (Color Picker wheel added)
             else if (activeTab == 3) { 
                 ImGui::TextColored(customAccent, "SYSTEM & THEME SETTINGS");
                 ImGui::Separator();
@@ -674,14 +680,20 @@ void _huy(void *instance) {
                 ImGui::Separator();
                 ImGui::Spacing();
                 
+                // Professional Color Wheel / Balance Picker Option
+                ImGui::Text("Menu Accent Color balance:");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, ImGuiColorEditFlags_PickerHueWheel | ImGuiColorEditFlags_AlphaBar);
+                
+                ImGui::Spacing();
                 ImGui::Text("Menu Transparency:");
                 ImGui::SetNextItemWidth(-1);
                 ImGui::SliderFloat("##Transparency", &menuTransparency, 0.3f, 1.0f, "%.2f");
                 
                 ImGui::Spacing();
                 if (ImGui::Button("Logout Account", ImVec2(-1, 38))) {
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_USER"];
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"COSMOS_PASS"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_USER"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"CEYLON_PASS"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
                     isKeyAuthLogged = false;
                     memset(usernameInput, 0, sizeof(usernameInput));
@@ -696,7 +708,6 @@ void _huy(void *instance) {
         
         ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
         
-        // Render FOV Circle in-game
         if (isKeyAuthLogged && aimbotEnable && showFovCircle) {
             ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
             draw_list->AddCircle(center, fovRadius * 3.0f, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 100, 1.2f);
