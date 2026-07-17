@@ -2,7 +2,7 @@
 #import <MetalKit/MetalKit.h>
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#include <math.h> // 3D Animation Calculations සඳහා
+#include <math.h>
 
 // Imgui library
 #import "Esp/CaptainHook.h"
@@ -27,28 +27,38 @@
 static bool MenDeal = true; 
 
 // ==========================================
+// 1. GAME OFFSETS PLACEHOLDERS
+// ==========================================
+// ඔයාගේ Offsets ටික මෙතනට දාන්න (උදාහරණයක් විදියට 0x0 දාලා තියෙන්නේ)
+#define OFFSET_NO_RECOIL       0x0000000 
+#define OFFSET_FAST_SWAP       0x0000000 
+#define OFFSET_FAST_RELOAD     0x0000000 
+#define OFFSET_TELEPORT        0x0000000 
+
+// Aimbot & ESP අදාළ Offsets
+#define OFFSET_AIMBOT_LOCK     0x0000000 
+#define OFFSET_CAMERA_FOV      0x0000000
+#define OFFSET_ESP_BONE        0x0000000
+
+// ==========================================
 // 3D ANIMATED TEXT RENDERER
 // ==========================================
 static void Draw3DAnimatedText(ImDrawList* drawList, ImFont* font, float fontSize, ImVec2 pos, const char* text, ImVec4 accent, bool isWatermark) {
     float time = (float)ImGui::GetTime();
     
-    // Animation Calculations
-    float baseAlpha = isWatermark ? 0.12f : 1.0f;
-    float pulse = (sin(time * 4.0f) + 1.0f) * 0.5f; // Glow effect from 0 to 1
-    int depth = isWatermark ? 3 : 5; // 3D Thickness
+    float baseAlpha = isWatermark ? 0.08f : 1.0f; // Watermark opacity පොඩ්ඩක් අඩු කළා
+    float pulse = (sin(time * 4.0f) + 1.0f) * 0.5f; 
+    int depth = isWatermark ? 3 : 5; 
     
-    // Draw 3D Extrusion (Back layers for 3D effect)
     for (int i = depth; i > 0; i--) {
-        // Floating wave animation on the 3D shadow
         float offsetX = i + sin(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
         float offsetY = i + cos(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
         
-        float shadowAlpha = isWatermark ? 0.05f : 0.4f;
+        float shadowAlpha = isWatermark ? 0.03f : 0.4f;
         drawList->AddText(font, fontSize, ImVec2(pos.x + offsetX, pos.y + offsetY), 
                           ImColor(10, 10, 15, (int)(shadowAlpha * 255)), text);
     }
     
-    // Draw Front Layer with Glowing Pulsating Accent Color
     float r = accent.x + (1.0f - accent.x) * pulse * 0.4f;
     float g = accent.y + (1.0f - accent.y) * pulse * 0.4f;
     float b = accent.z + (1.0f - accent.z) * pulse * 0.4f;
@@ -106,11 +116,45 @@ static bool teleportEnemies = false;
 static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; 
 static float menuTransparency = 0.90f;
 
-// Hidden iOS TextField
 static UITextField *hiddenTextField = nil;
 
-// Backspace Fix tracker
-static int holdBackspaceFrames = 0;
+// ==========================================
+// 2. APPLY HACKS LOGIC (ඔයාගේ Memory Patch Code ටික මෙතනට දාන්න)
+// ==========================================
+void UpdateHacks() {
+    if (!isKeyAuthLogged) return; // Login වෙලා නැත්නම් වැඩ කරන්නෙ නෑ
+
+    // Aimbot Logic
+    if (masterAimbot && aimbotEnable) {
+        // උදාහරණ: write(OFFSET_AIMBOT_LOCK, (void*)hex, size);
+        if (selectedAimMethod == 0) {
+            // Silent Aim Patch 
+        } else {
+            // Vector Aim Patch
+        }
+    } else {
+        // Restore Aimbot
+    }
+
+    // Visuals ESP Logic
+    if (enemyEsp) {
+        if (espLine) { /* Line ESP Hook */ }
+        if (espBox)  { /* Box ESP Hook */ }
+        // අනිත් ESP ටිකටත් මෙහෙම දාගන්න
+    }
+
+    // Misc Logic
+    if (noRecoil) {
+        // උදාහරණ: 
+        // patchMemory(OFFSET_NO_RECOIL, "00 00 A0 E3 1E FF 2F E1"); // ARM code
+    } else {
+        // restoreMemory(OFFSET_NO_RECOIL);
+    }
+
+    if (fastSwap) { /* Fast swap logic */ }
+    if (fastReload) { /* Fast reload logic */ }
+    if (teleportEnemies) { /* Teleport logic */ }
+}
 
 const char* GetClipboardTextFn(void* user_data) {
     UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
@@ -129,7 +173,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 
 @implementation ImGuiDrawView
 
-// KeyAuth API Login with Username & Password
 - (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
     
@@ -240,8 +283,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     
-    io.KeyMap[ImGuiKey_Backspace] = 8;
-    
     io.GetClipboardTextFn = GetClipboardTextFn;
     io.SetClipboardTextFn = SetClipboardTextFn;
     
@@ -295,13 +336,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     ImGuiIO& io = ImGui::GetIO();
-    
-    if (string.length == 0) {
-        holdBackspaceFrames = 2; 
-    } else {
-        for (int i = 0; i < string.length; i++) {
-            io.AddInputCharacter([string characterAtIndex:i]);
-        }
+    for (int i = 0; i < string.length; i++) {
+        io.AddInputCharacter([string characterAtIndex:i]);
     }
     return NO; 
 }
@@ -358,13 +394,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     CGFloat framebufferScale = view.window.screen.scale ?: UIScreen.mainScreen.scale;
     io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
     io.DeltaTime = 1 / float(view.preferredFramesPerSecond ?: 120);
-
-    if (holdBackspaceFrames > 0) {
-        io.KeysDown[8] = true; 
-        holdBackspaceFrames--;
-    } else {
-        io.KeysDown[8] = false;
-    }
     
     static bool wasWantTextInput = false;
     if (io.WantTextInput && !wasWantTextInput) {
@@ -381,6 +410,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         [self.view setUserInteractionEnabled:YES];
     } else {
         [self.view setUserInteractionEnabled:(MenDeal ? YES : NO)];
+        
+        // Execute Hack logic repeatedly in the render loop when menu is closed or open
+        UpdateHacks();
     }
 
     MTLRenderPassDescriptor* renderPassDescriptor = view.currentRenderPassDescriptor;
@@ -426,11 +458,11 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         font->Scale = 14.f / font->FontSize;
         
         // ==========================================
-        // SCREEN 1: LOGIN
+        // SCREEN 1: LOGIN (WITH CLEAR BUTTONS)
         // ==========================================
         if (!isKeyAuthLogged) 
         {
-            CGFloat loginWidth = 350;  
+            CGFloat loginWidth = 360;  
             CGFloat loginHeight = 280; 
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
@@ -448,26 +480,35 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
             drawList->AddLine(ImVec2(pos.x, pos.y + 65), ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 2.0f);
             
-            // 3D ANIMATED NAME IN LOGIN
             ImGui::SetCursorPos(ImVec2(20, 18));
             ImVec2 textPos = ImGui::GetCursorScreenPos();
             Draw3DAnimatedText(drawList, font, 24.0f, textPos, "STATISTICS KING", customAccent, false);
-            ImGui::Dummy(ImVec2(0, 30)); // Space for the custom text
+            ImGui::Dummy(ImVec2(0, 30)); 
             
             ImGui::SetCursorPos(ImVec2(20, 48));
             ImGui::TextDisabled("PREMIUM ACCESS");
             
             ImGui::SetCursorPosY(85);
             
+            // USERNAME FIELD WITH CLEAR BUTTON
             ImGui::TextDisabled("Username:");
-            ImGui::SetNextItemWidth(-1);
+            ImGui::SetNextItemWidth(260); // Width adjusted to fit button
             ImGui::InputText("##UserField", usernameInput, IM_ARRAYSIZE(usernameInput));
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##1", ImVec2(55, 0))) {
+                memset(usernameInput, 0, sizeof(usernameInput));
+            }
             
             ImGui::Spacing();
             
+            // PASSWORD FIELD WITH CLEAR BUTTON
             ImGui::TextDisabled("Password:");
-            ImGui::SetNextItemWidth(-1);
+            ImGui::SetNextItemWidth(260); // Width adjusted to fit button
             ImGui::InputText("##PassField", passwordInput, IM_ARRAYSIZE(passwordInput), ImGuiInputTextFlags_Password);
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##2", ImVec2(55, 0))) {
+                memset(passwordInput, 0, sizeof(passwordInput));
+            }
             
             ImGui::Spacing();
             ImGui::Separator();
@@ -528,7 +569,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
             ImGui::Begin("STATISTICS_MAIN_CONTAINER", &MenDeal, window_flags);
             
-            // --- HUGE 3D ANIMATED WATERMARK ---
+            // --- HUGE 3D ANIMATED WATERMARK (CENTERED IN CONTENT AREA) ---
             ImDrawList* internalDrawList = ImGui::GetWindowDrawList();
             ImVec2 windowPos = ImGui::GetWindowPos();
             ImVec2 windowSize = ImGui::GetWindowSize();
@@ -538,12 +579,12 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImVec2 textSize = ImGui::CalcTextSize(watermarkText.c_str());
             font->Scale = 14.f / font->FontSize; 
             
+            // Sidebar එක 140px නිසා Watermark එක දකුණු පැත්තට Center වෙන්න හැදුවා
             ImVec2 wmPos = ImVec2(
-                windowPos.x + (windowSize.x - textSize.x) * 0.5f + 40.0f,
+                windowPos.x + 140.0f + ((windowSize.x - 140.0f) - textSize.x) * 0.5f,
                 windowPos.y + (windowSize.y - textSize.y) * 0.5f
             );
             
-            // Call the Custom 3D Animation Function for Watermark
             Draw3DAnimatedText(internalDrawList, font, 45.0f, wmPos, watermarkText.c_str(), customAccent, true);
             // ------------------------------------------
 
@@ -555,11 +596,10 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             
             ImGui::Spacing();
             
-            // 3D ANIMATED NAME IN SIDEBAR
             ImGui::SetCursorPosX(10);
             ImVec2 sidebarTextPos = ImGui::GetCursorScreenPos();
             Draw3DAnimatedText(internalDrawList, font, 14.0f, sidebarTextPos, "STATISTICS KING", customAccent, false);
-            ImGui::Dummy(ImVec2(0, 20)); // Spacing below text
+            ImGui::Dummy(ImVec2(0, 20)); 
 
             ImGui::Separator();
             ImGui::Spacing();
