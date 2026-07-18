@@ -158,7 +158,7 @@ static float menuTransparency = 0.90f;
 static UITextField *hiddenTextField = nil;
 
 @class ImGuiDrawView;
-static ImGuiDrawView *selfInstance = nil; // Main Thread එකේදී safely call කරන්න instance pointer එකක්
+static ImGuiDrawView *selfInstance = nil; 
 
 // ==========================================
 // 2. COMPLETE HACK LOGIC FUNCTION (DYNAMIC INJECTIONS INSTALLED)
@@ -360,7 +360,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     ImGui_ImplMetal_Init(_device);
     
-    selfInstance = self; // Global pointer එක assign කිරීම
+    selfInstance = self; 
     return self;
 }
 
@@ -389,7 +389,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 }
 
 - (void)viewDidLoad {
-    [super Xcode_viewDidLoad];
+    [super viewDidLoad]; // මෙතන වැරදි ලිපිය නිවැරදි කලා!
     self.mtkViewObj.device = self.device;
     self.mtkViewObj.delegate = self;
     hiddenTextField = [[UITextField alloc] initWithFrame:CGRectMake(-100, -100, 10, 10)];
@@ -399,7 +399,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self tryAutoLogin];
 }
 
-// Main thread එකේදී safely layer එක refresh කරන විදිය (100% Fix)
 - (void)updateStreamProofState {
     dispatch_async(dispatch_get_main_queue(), ^{
         [self.mtkViewObj removeFromSuperview];
@@ -453,8 +452,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(view.bounds.size.width, view.bounds.size.height);
     io.DeltaTime = 1.0f / 60.0f;
-    
-    // (මෙතන තිබ්බ පැරණි laggy කෑල්ල ඉවත් කර ඇත)
 
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     [self.view setUserInteractionEnabled:(!isKeyAuthLogged ? YES : (MenDeal ? YES : NO))];
@@ -528,7 +525,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::Checkbox("Teleport enemies to you", &teleportEnemies);
             }
             else if (activeTab == 3) {
-                // Checkbox එක click කරපු සැනින් safely වෙනස් කිරීම
                 if (ImGui::Checkbox("Stream Proof", &streamProof)) {
                     if (selfInstance) {
                         [selfInstance updateStreamProofState];
