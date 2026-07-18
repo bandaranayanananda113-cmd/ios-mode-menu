@@ -31,20 +31,17 @@
 static bool MenDeal = true; 
 
 // ==========================================
-// 1. ALL GAME OFFSETS PLACEHOLDERS (FITTED FOR ALL OPTIONS)
+// 1. ALL GAME OFFSETS PLACEHOLDERS
 // ==========================================
-// Misc Offsets
 #define OFFSET_NO_RECOIL       0x10A2B3C  
 #define OFFSET_FAST_SWAP       0x10B3C4D  
 #define OFFSET_FAST_RELOAD     0x10C4D5E  
 #define OFFSET_TELEPORT        0x10D5E6F  
 
-// Aimbot & Engine Offsets
 #define OFFSET_AIMBOT_LOCK     0x20A1B2C  
 #define OFFSET_SILENT_AIM      0x20B2C3D  
 #define OFFSET_HITBOX_DATA     0x20C3D4E  
 
-// Visuals & ESP Offsets
 #define OFFSET_ENTITY_LIST     0x30A7B8C  
 #define OFFSET_CAMERA_MATRIX   0x30B8C9D  
 
@@ -82,7 +79,6 @@ uintptr_t getLocalRealOffset(uintptr_t offset) {
 // ==========================================
 static void Draw3DAnimatedText(ImDrawList* drawList, ImFont* font, float fontSize, ImVec2 pos, const char* text, ImVec4 accent, bool isWatermark) {
     float time = (float)ImGui::GetTime();
-    
     float baseAlpha = isWatermark ? 0.08f : 1.0f;
     float pulse = (sin(time * 4.0f) + 1.0f) * 0.5f; 
     int depth = isWatermark ? 3 : 5; 
@@ -90,7 +86,6 @@ static void Draw3DAnimatedText(ImDrawList* drawList, ImFont* font, float fontSiz
     for (int i = depth; i > 0; i--) {
         float offsetX = i + sin(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
         float offsetY = i + cos(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
-        
         float shadowAlpha = isWatermark ? 0.03f : 0.4f;
         drawList->AddText(font, fontSize, ImVec2(pos.x + offsetX, pos.y + offsetY), 
                           ImColor(10, 10, 15, (int)(shadowAlpha * 255)), text);
@@ -157,23 +152,14 @@ static float menuTransparency = 0.90f;
 
 static UITextField *hiddenTextField = nil;
 
-@class ImGuiDrawView;
-static ImGuiDrawView *selfInstance = nil; 
-
 // ==========================================
-// 2. COMPLETE HACK LOGIC FUNCTION (DYNAMIC INJECTIONS INSTALLED)
+// 2. COMPLETE HACK LOGIC FUNCTION
 // ==========================================
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
 
     if (masterAimbot && aimbotEnable) {
         uintptr_t aimLockAddr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
-        uintptr_t hitboxAddr = getLocalRealOffset(OFFSET_HITBOX_DATA);
-        
-        float currentFov = fovRadius;
-        float currentDistance = maxDistance;
-        int targetBone = selectedHitbox; 
-        
         if (selectedAimMethod == 0) {
             uintptr_t silentAddr = getLocalRealOffset(OFFSET_SILENT_AIM);
             const uint8_t silentPatch[] = { 0x20, 0x00, 0x80, 0xD2 }; 
@@ -182,18 +168,6 @@ void UpdateHacks() {
             const uint8_t lockPatch[] = { 0x00, 0x01, 0x80, 0xD2 };
             safePatchMemory(aimLockAddr, lockPatch, sizeof(lockPatch));
         }
-    }
-
-    if (enemyEsp) {
-        uintptr_t entityList = getLocalRealOffset(OFFSET_ENTITY_LIST);
-        uintptr_t viewMatrix = getLocalRealOffset(OFFSET_CAMERA_MATRIX);
-        
-        if (espLine)     { }
-        if (espBox)      { }
-        if (espHealth)   { }
-        if (espNickname) { }
-        if (espDistance) { }
-        if (espSkeleton) { }
     }
 
     static bool lastNoRecoil = false;
@@ -359,8 +333,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     io.SetClipboardTextFn = SetClipboardTextFn;
     ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     ImGui_ImplMetal_Init(_device);
-    
-    selfInstance = self; 
     return self;
 }
 
@@ -389,7 +361,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 }
 
 - (void)viewDidLoad {
-    [super viewDidLoad]; // මෙතන වැරදි ලිපිය නිවැරදි කලා!
+    [super viewDidLoad];
     self.mtkViewObj.device = self.device;
     self.mtkViewObj.delegate = self;
     hiddenTextField = [[UITextField alloc] initWithFrame:CGRectMake(-100, -100, 10, 10)];
@@ -399,28 +371,22 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self tryAutoLogin];
 }
 
+// -------------------------------------------------------------
+// හදපු කොටස 1: Thread-Safe විදිහට Secure Layer එක Refresh කරන තැන
+// -------------------------------------------------------------
 - (void)updateStreamProofState {
     dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.secureContainerField.secureTextEntry == streamProof) return;
+        
         [self.mtkViewObj removeFromSuperview];
         self.secureContainerField.secureTextEntry = streamProof;
         
-        UIView *secureLayer = nil;
-        for (UIView *subview in self.secureContainerField.subviews) {
-            if ([NSStringFromClass([subview class]) containsString:@"Canvas"] || 
-                [NSStringFromClass([subview class]) containsString:@"Text"] ||
-                [NSStringFromClass([subview class]) containsString:@"Field"]) {
-                secureLayer = subview;
-                break;
-            }
-        }
-        if (!secureLayer) {
-            secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
-        }
-        
-        self.mtkViewObj.frame = self.view.bounds;
+        UIView *secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
         [secureLayer addSubview:self.mtkViewObj];
+        
         [self.view setNeedsLayout];
         [self.view layoutIfNeeded];
+        [self.mtkViewObj setNeedsDisplay];
     });
 }
 
@@ -452,6 +418,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = ImVec2(view.bounds.size.width, view.bounds.size.height);
     io.DeltaTime = 1.0f / 60.0f;
+    
+    // හදපු කොටස 2: මෙතන තිබ්බ පරණ loop එක (draw loop එක ඇතුළේ දිගටම main queue එකට dispatch කරපු එක) සම්පූර්ණයෙන්ම අයින් කළා.
 
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     [self.view setUserInteractionEnabled:(!isKeyAuthLogged ? YES : (MenDeal ? YES : NO))];
@@ -470,8 +438,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         style->Colors[ImGuiCol_CheckMark] = customAccent;
         style->Colors[ImGuiCol_SliderGrab] = customAccent;
         style->Colors[ImGuiCol_Button] = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.20f);
-        
-        ImFont* font = ImGui::GetFont();
         
         if (!isKeyAuthLogged) {
             ImGui::SetNextWindowSize(ImVec2(360, 330), ImGuiCond_Always);
@@ -524,10 +490,14 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::Checkbox("Fast Reload", &fastReload);
                 ImGui::Checkbox("Teleport enemies to you", &teleportEnemies);
             }
+            // -------------------------------------------------------------
+            // හදපු කොටස 3: Settings Tab එකේ Checkbox එක Click කරපු ගමන්ම Trigger වෙන විදිහ
+            // -------------------------------------------------------------
             else if (activeTab == 3) {
+                bool previousState = streamProof;
                 if (ImGui::Checkbox("Stream Proof", &streamProof)) {
-                    if (selfInstance) {
-                        [selfInstance updateStreamProofState];
+                    if (previousState != streamProof) {
+                        [self updateStreamProofState];
                     }
                 }
                 ImGui::SliderFloat("Menu Transparency", &menuTransparency, 0.3f, 1.0f);
