@@ -115,12 +115,13 @@ static bool isAuthenticating = false;
 // ==========================================
 // PROFESSIONAL CHEAT VARIABLES
 // ==========================================
-static bool streamProof = true; // Default ON (Can be changed in UI now)
+static bool streamProof = true; 
 static bool masterAimbot = false;
 static bool aimbotEnable = false;
 static int selectedAimConfig = 0; 
 static int selectedAimMethod = 0; 
 static bool showFovCircle = false;
+static float fovCircleColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // FOV Circle එකට වෙනම වර්ණ විචල්‍යයක්
 static bool ignoreKnocked = false;
 static bool forceLock = false;
 static int selectedHitbox = 0; 
@@ -155,12 +156,12 @@ static UITextField *hiddenTextField = nil;
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
 
-    // Aimbot Logic
+    // Aimbot Logic (රවුම hide කරලා තිබ්බත් fovRadius අගය මත පමණක් ක්‍රියා කරයි)
     if (masterAimbot && aimbotEnable) {
         if (selectedAimMethod == 0) {
-            // Silent Aim Patch 
+            // Silent Aim Patch (Uses fovRadius internally)
         } else {
-            // Vector Aim Patch
+            // Vector Aim Patch (Uses fovRadius internally)
         }
     } else {
         // Restore Aimbot
@@ -171,7 +172,6 @@ void UpdateHacks() {
         if (espBox)  { /* Box ESP Hook */ }
     }
 
-    // No Recoil Memory Patching Logic 
     static bool lastNoRecoil = false;
     if (noRecoil != lastNoRecoil) {
         uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
@@ -200,7 +200,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 @property (nonatomic, strong) id <MTLDevice> device;
 @property (nonatomic, strong) id <MTLCommandQueue> commandQueue;
 @property (nonatomic, strong) MTKView *mtkViewObj;
-@property (nonatomic, strong) UITextField *secureContainerField; // Stream Proof Container
+@property (nonatomic, strong) UITextField *secureContainerField; 
 @end
 
 @implementation ImGuiDrawView
@@ -338,27 +338,21 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     CGFloat w = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.width;
     CGFloat h = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.height;
     
-    // Main Root View
     self.view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
     self.view.backgroundColor = [UIColor clearColor];
     
-    // Stream Proof Container (Secure Text Field)
     self.secureContainerField = [[UITextField alloc] initWithFrame:self.view.bounds];
     self.secureContainerField.backgroundColor = [UIColor clearColor];
     self.secureContainerField.secureTextEntry = streamProof;
-    // TOUCH FIX: මෙතන userInteractionEnabled = NO කරන්න අනිවාර්යයි! 
-    // එතකොට Touches ටික self.view එකට ගිහින් ImGui එකට අහුවෙනවා.
     self.secureContainerField.userInteractionEnabled = NO;
     [self.view addSubview:self.secureContainerField];
     
-    // Metal View for ImGui
     self.mtkViewObj = [[MTKView alloc] initWithFrame:self.view.bounds];
     self.mtkViewObj.clearColor = MTLClearColorMake(0, 0, 0, 0);
     self.mtkViewObj.backgroundColor = [UIColor clearColor];
     self.mtkViewObj.clipsToBounds = YES;
-    self.mtkViewObj.userInteractionEnabled = NO; // Touch block නොකරන්න
+    self.mtkViewObj.userInteractionEnabled = NO; 
     
-    // Insert Metal view inside Secure Field Layer
     UIView *secureLayer = self.secureContainerField.subviews.firstObject;
     if (!secureLayer) secureLayer = self.secureContainerField;
     [secureLayer addSubview:self.mtkViewObj]; 
@@ -383,11 +377,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self tryAutoLogin];
 }
 
-// Runtime එකේදී Menu එක අතුරුදහන් නොවී Stream proof ON/OFF කරන Function එක
 - (void)updateStreamProofState {
     if (self.secureContainerField.secureTextEntry == streamProof) return;
     
-    // Menu එක ගලවලා Stream proof state එක මාරු කරලා ආයෙත් අලවනවා
     [self.mtkViewObj removeFromSuperview];
     self.secureContainerField.secureTextEntry = streamProof;
     
@@ -466,7 +458,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     }
     wasWantTextInput = io.WantTextInput;
     
-    // Update iOS Secure Container State (Safe implementation)
     if (self.secureContainerField.secureTextEntry != streamProof) {
         dispatch_async(dispatch_get_main_queue(), ^{
             [self updateStreamProofState];
@@ -530,7 +521,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         if (!isKeyAuthLogged) 
         {
             CGFloat loginWidth = 360;  
-            CGFloat loginHeight = 330; // Height එක ටිකක් වැඩි කරා Checkbox එකට ඉඩ දෙන්න
+            CGFloat loginHeight = 330; 
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
             
@@ -578,7 +569,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::Spacing();
             ImGui::Separator();
             
-            // === අලුතින් එකතු කරපු Stream Proof Checkbox එක (Login Screen) ===
             ImGui::Spacing();
             ImGui::Checkbox("Stream Proof (Hide Menu from Screen Share)", &streamProof);
             ImGui::Spacing();
@@ -737,7 +727,15 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::SetNextItemWidth(-1);
                 ImGui::Combo("##AimMethod", &selectedAimMethod, aimMethods, IM_ARRAYSIZE(aimMethods));
                 
+                // === CHANGED: Checkbox එක අසලින්ම එන කුඩා FOV Color Picker එක ===
                 ImGui::Checkbox("Show FOV circle", &showFovCircle);
+                ImGui::SameLine(ImGui::GetWindowWidth() - 50); 
+                ImGui::ColorEdit4("##FovCircleColorPicker", fovCircleColor, 
+                                  ImGuiColorEditFlags_PickerHueWheel | 
+                                  ImGuiColorEditFlags_AlphaBar | 
+                                  ImGuiColorEditFlags_NoInputs | 
+                                  ImGuiColorEditFlags_NoLabel);
+
                 ImGui::Checkbox("Ignore Knocked", &ignoreKnocked);
                 ImGui::Checkbox("Force lock", &forceLock);
                 
@@ -747,8 +745,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::SetNextItemWidth(-1);
                 ImGui::Combo("##Hitbox", &selectedHitbox, hitboxes, IM_ARRAYSIZE(hitboxes));
                 
+                // === CHANGED: Font encoding නිවැරදි කර 'Deg' (Degrees) ලෙස පෙන්වීම ===
                 ImGui::Spacing();
-                ImGui::Text("FOV"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1f°", fovRadius);
+                ImGui::Text("FOV"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1f Deg", fovRadius);
                 ImGui::SetNextItemWidth(-1);
                 ImGui::SliderFloat("##FOV_Slider", &fovRadius, 1.0f, 360.0f, "");
                 
@@ -813,7 +812,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                // STREAM PROOF TOGGLE
                 ImGui::Checkbox("Stream Proof (Hide from Record/Share)", &streamProof);
                 ImGui::Spacing();
                 
@@ -847,9 +845,12 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         
         ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
         
+        // === CHANGED: තේරූ පාට (fovCircleColor) පමණක් රවුමට Apply වන ලෙස සකස් කිරීම ===
         if (isKeyAuthLogged && aimbotEnable && showFovCircle) {
             ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
-            draw_list->AddCircle(center, fovRadius * 3.0f, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 100, 1.2f);
+            draw_list->AddCircle(center, fovRadius * 3.0f, 
+                                 ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 
+                                 100, 1.2f);
         }
 
         ImGui::Render();
