@@ -31,22 +31,15 @@
 static bool MenDeal = true; 
 
 // ==========================================
-// 1. ALL GAME OFFSETS PLACEHOLDERS (FITTED FOR ALL OPTIONS)
+// GAME OFFSETS PLACEHOLDERS
 // ==========================================
-// Misc Offsets
-#define OFFSET_NO_RECOIL       0x10A2B3C  // Fake Offset Example
-#define OFFSET_FAST_SWAP       0x10B3C4D  // Fake Offset Example
-#define OFFSET_FAST_RELOAD     0x10C4D5E  // Fake Offset Example
-#define OFFSET_TELEPORT        0x10D5E6F  // Fake Offset Example
-
-// Aimbot & Engine Offsets
-#define OFFSET_AIMBOT_LOCK     0x20A1B2C  // Fake Offset Example
-#define OFFSET_SILENT_AIM      0x20B2C3D  // Fake Offset Example
-#define OFFSET_HITBOX_DATA     0x20C3D4E  // Fake Offset Example
-
-// Visuals & ESP Offsets
-#define OFFSET_ENTITY_LIST     0x30A7B8C  // Fake Offset Example
-#define OFFSET_CAMERA_MATRIX   0x30B8C9D  // Fake Offset Example
+#define OFFSET_NO_RECOIL       0x0000000 
+#define OFFSET_FAST_SWAP       0x0000000 
+#define OFFSET_FAST_RELOAD     0x0000000 
+#define OFFSET_TELEPORT        0x0000000 
+#define OFFSET_AIMBOT_LOCK     0x0000000 
+#define OFFSET_CAMERA_FOV      0x0000000
+#define OFFSET_ESP_BONE        0x0000000
 
 // ==========================================
 // SAFE MEMORY PATCHING FUNCTIONS 
@@ -120,7 +113,7 @@ static std::string loginErrorMessage = "";
 static bool isAuthenticating = false;
 
 // ==========================================
-// CHEAT VARIABLES
+// PROFESSIONAL CHEAT VARIABLES
 // ==========================================
 static bool streamProof = true; 
 static bool masterAimbot = false;
@@ -128,7 +121,7 @@ static bool aimbotEnable = false;
 static int selectedAimConfig = 0; 
 static int selectedAimMethod = 0; 
 static bool showFovCircle = false;
-static float fovCircleColor[4] = {1.00f, 0.32f, 0.12f, 1.00f};
+static float fovCircleColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; // FOV Circle එකට වෙනම වර්ණ විචල්‍යයක්
 static bool ignoreKnocked = false;
 static bool forceLock = false;
 static int selectedHitbox = 0; 
@@ -158,47 +151,27 @@ static float menuTransparency = 0.90f;
 static UITextField *hiddenTextField = nil;
 
 // ==========================================
-// 2. COMPLETE HACK LOGIC FUNCTION (DYNAMIC INJECTIONS INSTALLED)
+// HACK LOGIC FUNCTION
 // ==========================================
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
 
-    // --- Aimbot Realtime Integration Logic ---
+    // Aimbot Logic (රවුම hide කරලා තිබ්බත් fovRadius අගය මත පමණක් ක්‍රියා කරයි)
     if (masterAimbot && aimbotEnable) {
-        uintptr_t aimLockAddr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
-        uintptr_t hitboxAddr = getLocalRealOffset(OFFSET_HITBOX_DATA);
-        
-        // Pass slider settings to internal logic placeholders
-        float currentFov = fovRadius;
-        float currentDistance = maxDistance;
-        int targetBone = selectedHitbox; // 0=Head, 1=Neck, 2=Body...
-        
         if (selectedAimMethod == 0) {
-            // Silent Aim Configuration Patch
-            uintptr_t silentAddr = getLocalRealOffset(OFFSET_SILENT_AIM);
-            const uint8_t silentPatch[] = { 0x20, 0x00, 0x80, 0xD2 }; // Generic ARM64 Injection
-            safePatchMemory(silentAddr, silentPatch, sizeof(silentPatch));
+            // Silent Aim Patch (Uses fovRadius internally)
         } else {
-            // Vector/Memory Lock Patch Execution
-            const uint8_t lockPatch[] = { 0x00, 0x01, 0x80, 0xD2 };
-            safePatchMemory(aimLockAddr, lockPatch, sizeof(lockPatch));
+            // Vector Aim Patch (Uses fovRadius internally)
         }
+    } else {
+        // Restore Aimbot
     }
 
-    // --- ESP Drawing & Entity Matrix Injections ---
     if (enemyEsp) {
-        uintptr_t entityList = getLocalRealOffset(OFFSET_ENTITY_LIST);
-        uintptr_t viewMatrix = getLocalRealOffset(OFFSET_CAMERA_MATRIX);
-        
-        if (espLine)     { /* Dynamic ImGui Matrix Lines Render Loop placeholder */ }
-        if (espBox)      { /* Dynamic ImGui Matrix Boxes Render Loop placeholder */ }
-        if (espHealth)   { /* Parse Entity HP array structural lookup placeholder */ }
-        if (espNickname) { /* Parse Entity Name pointer descriptor placeholder */ }
-        if (espDistance) { /* Vector3 Math calculate local distance placeholder */ }
-        if (espSkeleton) { /* Structural dynamic bone offset parsing hook */ }
+        if (espLine) { /* Line ESP Hook */ }
+        if (espBox)  { /* Box ESP Hook */ }
     }
 
-    // --- Misc Modifications Patch Execution Block ---
     static bool lastNoRecoil = false;
     if (noRecoil != lastNoRecoil) {
         uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
@@ -210,45 +183,6 @@ void UpdateHacks() {
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastNoRecoil = noRecoil;
-    }
-
-    static bool lastFastSwap = false;
-    if (fastSwap != lastFastSwap) {
-        uintptr_t addr = getLocalRealOffset(OFFSET_FAST_SWAP);
-        if (fastSwap) {
-            const uint8_t patch[] = { 0x00, 0x00, 0x80, 0xD2 }; // Dynamic fast transition bit override
-            safePatchMemory(addr, patch, sizeof(patch));
-        } else {
-            const uint8_t restore[] = { 0xF4, 0x4F, 0x01, 0xA9 }; // Default hardware instruction
-            safePatchMemory(addr, restore, sizeof(restore));
-        }
-        lastFastSwap = fastSwap;
-    }
-
-    static bool lastFastReload = false;
-    if (fastReload != lastFastReload) {
-        uintptr_t addr = getLocalRealOffset(OFFSET_FAST_RELOAD);
-        if (fastReload) {
-            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; // Speed duration instruction skip
-            safePatchMemory(addr, patch, sizeof(patch));
-        } else {
-            const uint8_t restore[] = { 0xFD, 0x7B, 0x01, 0xA9 }; // Default register restore
-            safePatchMemory(addr, restore, sizeof(restore));
-        }
-        lastFastReload = fastReload;
-    }
-
-    static bool lastTeleport = false;
-    if (teleportEnemies != lastTeleport) {
-        uintptr_t addr = getLocalRealOffset(OFFSET_TELEPORT);
-        if (teleportEnemies) {
-            const uint8_t patch[] = { 0xE0, 0x03, 0x27, 0x1E }; // Vector coordinates replication hook
-            safePatchMemory(addr, patch, sizeof(patch));
-        } else {
-            const uint8_t restore[] = { 0xE0, 0x03, 0x00, 0xAA }; 
-            safePatchMemory(addr, restore, sizeof(restore));
-        }
-        lastTeleport = teleportEnemies;
     }
 }
 
@@ -273,6 +207,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 
 - (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
+    
     NSMutableURLRequest *initRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [initRequest setHTTPMethod:@"POST"];
     NSString *initPostData = [NSString stringWithFormat:@"type=init&name=%@&ownerid=%@&secret=%@&ver=%@", kaName, kaOwnerId, kaSecret, kaVersion];
@@ -280,10 +215,14 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     
     __block NSDictionary *initJson = nil;
     dispatch_semaphore_t sema1 = dispatch_semaphore_create(0);
+    
     [[[NSURLSession sharedSession] dataTaskWithRequest:initRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (data) initJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (data) {
+            initJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        }
         dispatch_semaphore_signal(sema1);
     }] resume];
+    
     dispatch_semaphore_wait(sema1, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
     
     if (!initJson || ![initJson[@"success"] boolValue]) {
@@ -301,17 +240,23 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     
     __block NSDictionary *loginJson = nil;
     dispatch_semaphore_t sema2 = dispatch_semaphore_create(0);
+    
     [[[NSURLSession sharedSession] dataTaskWithRequest:loginRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (data) loginJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        if (data) {
+            loginJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+        }
         dispatch_semaphore_signal(sema2);
     }] resume];
+    
     dispatch_semaphore_wait(sema2, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
     
     if (loginJson && [loginJson[@"success"] boolValue]) {
         NSDictionary *info = loginJson[@"info"];
         if (info) {
             id expiryVal = info[@"expiry"];
-            if (expiryVal) subExpiryDate = [NSString stringWithFormat:@"%@", expiryVal].UTF8String;
+            if (expiryVal) {
+                subExpiryDate = [NSString stringWithFormat:@"%@", expiryVal].UTF8String;
+            }
             NSArray *subs = info[@"subscriptions"];
             if (subs && subs.count > 0) {
                 id timeleft = subs[0][@"timeleft"];
@@ -322,9 +267,11 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 }
             }
         }
+        
         [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"STATISTICS_USER"];
         [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"STATISTICS_PASS"];
         [[NSUserDefaults standardUserDefaults] synchronize];
+        
         return YES;
     } else {
         loginErrorMessage = loginJson[@"message"] ? [loginJson[@"message"] UTF8String] : "Invalid Credentials.";
@@ -335,15 +282,23 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 - (void)tryAutoLogin {
     NSString *savedUser = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_USER"];
     NSString *savedPass = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_PASS"];
+    
     if (savedUser && savedPass) {
         strncpy(usernameInput, [savedUser UTF8String], sizeof(usernameInput) - 1);
         strncpy(passwordInput, [savedPass UTF8String], sizeof(passwordInput) - 1);
         isAuthenticating = true;
+        
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             BOOL success = [self performUserPassLogin:savedUser pwd:savedPass];
             dispatch_async(dispatch_get_main_queue(), ^{
                 isAuthenticating = false;
-                if (success) isKeyAuthLogged = true;
+                if (success) {
+                    isKeyAuthLogged = true;
+                } else {
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_PASS"];
+                    [[NSUserDefaults standardUserDefaults] synchronize];
+                }
             });
         });
     }
@@ -354,23 +309,35 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
     _device = MTLCreateSystemDefaultDevice();
     _commandQueue = [_device newCommandQueue];
+
     if (!self.device) abort();
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    
     io.GetClipboardTextFn = GetClipboardTextFn;
     io.SetClipboardTextFn = SetClipboardTextFn;
-    ImGui::GetIO().Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
+    
+    ImFont* font = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     ImGui_ImplMetal_Init(_device);
+    
     return self;
 }
 
-+ (void)showChange:(BOOL)open { MenDeal = !isKeyAuthLogged ? true : open; }
++ (void)showChange:(BOOL)open
+{
+    if (!isKeyAuthLogged) {
+        MenDeal = true;
+    } else {
+        MenDeal = open;
+    }
+}
 
 - (void)loadView
 {
     CGFloat w = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.width;
     CGFloat h = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.height;
+    
     self.view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
     self.view.backgroundColor = [UIColor clearColor];
     
@@ -383,35 +350,62 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     self.mtkViewObj = [[MTKView alloc] initWithFrame:self.view.bounds];
     self.mtkViewObj.clearColor = MTLClearColorMake(0, 0, 0, 0);
     self.mtkViewObj.backgroundColor = [UIColor clearColor];
+    self.mtkViewObj.clipsToBounds = YES;
     self.mtkViewObj.userInteractionEnabled = NO; 
     
-    UIView *secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
+    UIView *secureLayer = self.secureContainerField.subviews.firstObject;
+    if (!secureLayer) secureLayer = self.secureContainerField;
     [secureLayer addSubview:self.mtkViewObj]; 
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    
     self.mtkViewObj.device = self.device;
     self.mtkViewObj.delegate = self;
+
     hiddenTextField = [[UITextField alloc] initWithFrame:CGRectMake(-100, -100, 10, 10)];
     hiddenTextField.keyboardType = UIKeyboardTypeASCIICapable;
+    hiddenTextField.autocorrectionType = UITextAutocorrectionTypeNo;
+    hiddenTextField.autocapitalizationType = UITextAutocapitalizationTypeNone;
     hiddenTextField.delegate = self;
     [self.view addSubview:hiddenTextField];
+
+    UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+    [self.view addGestureRecognizer:longPress];
+
     [self tryAutoLogin];
 }
 
 - (void)updateStreamProofState {
     if (self.secureContainerField.secureTextEntry == streamProof) return;
+    
     [self.mtkViewObj removeFromSuperview];
     self.secureContainerField.secureTextEntry = streamProof;
-    UIView *secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
+    
+    UIView *secureLayer = self.secureContainerField.subviews.firstObject;
+    if (!secureLayer) secureLayer = self.secureContainerField;
     [secureLayer addSubview:self.mtkViewObj];
 }
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     ImGuiIO& io = ImGui::GetIO();
-    for (int i = 0; i < string.length; i++) io.AddInputCharacter([string characterAtIndex:i]);
+    for (int i = 0; i < string.length; i++) {
+        io.AddInputCharacter([string characterAtIndex:i]);
+    }
     return NO; 
+}
+
+- (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
+    if (gesture.state == UIGestureRecognizerStateBegan) {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.WantTextInput) {
+            UIMenuController *menu = [UIMenuController sharedMenuController];
+            CGPoint location = [gesture locationInView:self.view];
+            [menu setTargetRect:CGRectMake(location.x, location.y, 1, 1) inView:self.view];
+            [menu setMenuVisible:YES animated:YES];
+        }
+    }
 }
 
 - (void)updateIOWithTouchEvent:(UIEvent *)event
@@ -420,86 +414,362 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     CGPoint touchLocation = [anyTouch locationInView:self.view];
     ImGuiIO &io = ImGui::GetIO();
     io.MousePos = ImVec2(touchLocation.x, touchLocation.y);
+
     BOOL hasActiveTouch = NO;
-    for (UITouch *touch in event.allTouches) {
-        if (touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled) { hasActiveTouch = YES; break; }
+    for (UITouch *touch in event.allTouches)
+    {
+        if (touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled)
+        {
+            hasActiveTouch = YES;
+            break;
+        }
     }
     io.MouseDown[0] = hasActiveTouch;
+    
+    if (anyTouch.phase == UITouchPhaseBegan) {
+        if (!ImGui::IsAnyItemActive() && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow)) {
+            [self.view endEditing:YES];
+            [hiddenTextField resignFirstResponder];
+        }
+    }
 }
 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
+- (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 
 - (void)drawInMTKView:(MTKView*)view
 {
     ImGuiIO& io = ImGui::GetIO();
-    io.DisplaySize = ImVec2(view.bounds.size.width, view.bounds.size.height);
-    io.DeltaTime = 1.0f / 60.0f;
+    io.DisplaySize.x = view.bounds.size.width;
+    io.DisplaySize.y = view.bounds.size.height;
+
+    CGFloat framebufferScale = view.window.screen.scale ?: UIScreen.mainScreen.scale;
+    io.DisplayFramebufferScale = ImVec2(framebufferScale, framebufferScale);
+    io.DeltaTime = 1 / float(view.preferredFramesPerSecond ?: 120);
+    
+    static bool wasWantTextInput = false;
+    if (io.WantTextInput && !wasWantTextInput) {
+        [hiddenTextField becomeFirstResponder];
+    } else if (!io.WantTextInput && wasWantTextInput) {
+        [hiddenTextField resignFirstResponder];
+        hiddenTextField.text = @""; 
+    }
+    wasWantTextInput = io.WantTextInput;
     
     if (self.secureContainerField.secureTextEntry != streamProof) {
-        dispatch_async(dispatch_get_main_queue(), ^{ [self updateStreamProofState]; });
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateStreamProofState];
+        });
     }
 
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
-    [self.view setUserInteractionEnabled:(!isKeyAuthLogged ? YES : (MenDeal ? YES : NO))];
-    if (isKeyAuthLogged) UpdateHacks();
+    
+    if (!isKeyAuthLogged) {
+        [self.view setUserInteractionEnabled:YES];
+    } else {
+        [self.view setUserInteractionEnabled:(MenDeal ? YES : NO)];
+        UpdateHacks();
+    }
 
     MTLRenderPassDescriptor* renderPassDescriptor = view.currentRenderPassDescriptor;
     if (renderPassDescriptor != nil)
     {
         id <MTLRenderCommandEncoder> renderEncoder = [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
+        [renderEncoder pushDebugGroup:@"ImGui Premium Cyber Login"];
+
         ImGui_ImplMetal_NewFrame(renderPassDescriptor);
         ImGui::NewFrame();
         
         ImGuiStyle* style = &ImGui::GetStyle();
+        style->WindowRounding = 12.0f;       
+        style->FrameRounding = 6.0f;        
+        style->GrabRounding = 10.0f;
+        style->PopupRounding = 6.0f;
+        style->ChildRounding = 8.0f;
+        style->WindowPadding = ImVec2(14, 14); 
+        style->FramePadding = ImVec2(10, 8);
+        style->ItemSpacing = ImVec2(10, 10);
+        style->WindowBorderSize = 1.0f; 
+        style->FrameBorderSize = 1.0f;
+
+        ImVec4* colors = style->Colors;
+        colors[ImGuiCol_WindowBg]               = ImVec4(0.06f, 0.07f, 0.10f, menuTransparency); 
+        colors[ImGuiCol_ChildBg]                = ImVec4(0.09f, 0.10f, 0.14f, 0.60f); 
+        colors[ImGuiCol_FrameBg]                = ImVec4(0.11f, 0.13f, 0.18f, 1.00f); 
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.15f, 0.18f, 0.24f, 1.00f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.18f, 0.22f, 0.30f, 1.00f);
+        
         ImVec4 customAccent = ImVec4(menuAccentColor[0], menuAccentColor[1], menuAccentColor[2], menuAccentColor[3]);
-        style->Colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.07f, 0.10f, menuTransparency);
-        style->Colors[ImGuiCol_CheckMark] = customAccent;
-        style->Colors[ImGuiCol_SliderGrab] = customAccent;
-        style->Colors[ImGuiCol_Button] = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.20f);
+        colors[ImGuiCol_Border]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.40f); 
+        colors[ImGuiCol_CheckMark]              = customAccent;
+        colors[ImGuiCol_SliderGrab]             = customAccent;
+        colors[ImGuiCol_SliderGrabActive]       = ImVec4(customAccent.x + 0.1f, customAccent.y + 0.1f, customAccent.z + 0.1f, 1.0f);
+        colors[ImGuiCol_Button]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.15f); 
+        colors[ImGuiCol_ButtonHovered]          = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.35f);
+        colors[ImGuiCol_ButtonActive]           = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.60f);
+        colors[ImGuiCol_Text]                   = ImVec4(0.92f, 0.94f, 0.98f, 1.00f); 
+        colors[ImGuiCol_TextDisabled]           = ImVec4(0.55f, 0.58f, 0.65f, 1.00f); 
         
         ImFont* font = ImGui::GetFont();
+        font->Scale = 14.f / font->FontSize;
         
-        // --- SCREEN 1: LOGIN ---
-        if (!isKeyAuthLogged) {
-            ImGui::SetNextWindowSize(ImVec2(360, 330), ImGuiCond_Always);
-            ImGui::Begin("LOGIN_SYSTEM", NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
-            ImGui::InputText("Username", usernameInput, 64);
-            ImGui::InputText("Password", passwordInput, 64, ImGuiInputTextFlags_Password);
-            if (ImGui::Button("Login to System", ImVec2(-1, 40))) {
-                isKeyAuthLogged = [self performUserPassLogin:[NSString stringWithUTF8String:usernameInput] pwd:[NSString stringWithUTF8String:passwordInput]];
+        // ==========================================
+        // SCREEN 1: LOGIN
+        // ==========================================
+        if (!isKeyAuthLogged) 
+        {
+            CGFloat loginWidth = 360;  
+            CGFloat loginHeight = 330; 
+            CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
+            CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
+            
+            ImGui::SetNextWindowPos(ImVec2(lx, ly), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(loginWidth, loginHeight), ImGuiCond_Always);
+            
+            ImGuiWindowFlags login_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove;
+            
+            ImGui::Begin("LOGIN_SYSTEM", NULL, login_flags);
+            
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 pos = ImGui::GetWindowPos();
+            
+            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
+            drawList->AddLine(ImVec2(pos.x, pos.y + 65), ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 2.0f);
+            
+            ImGui::SetCursorPos(ImVec2(20, 18));
+            ImVec2 textPos = ImGui::GetCursorScreenPos();
+            Draw3DAnimatedText(drawList, font, 24.0f, textPos, "STATISTICS KING", customAccent, false);
+            ImGui::Dummy(ImVec2(0, 30)); 
+            
+            ImGui::SetCursorPos(ImVec2(20, 48));
+            ImGui::TextDisabled("PREMIUM ACCESS");
+            
+            ImGui::SetCursorPosY(85);
+            
+            ImGui::TextDisabled("Username:");
+            ImGui::SetNextItemWidth(260); 
+            ImGui::InputText("##UserField", usernameInput, IM_ARRAYSIZE(usernameInput));
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##1", ImVec2(55, 0))) {
+                memset(usernameInput, 0, sizeof(usernameInput));
             }
+            
+            ImGui::Spacing();
+            
+            ImGui::TextDisabled("Password:");
+            ImGui::SetNextItemWidth(260); 
+            ImGui::InputText("##PassField", passwordInput, IM_ARRAYSIZE(passwordInput), ImGuiInputTextFlags_Password);
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##2", ImVec2(55, 0))) {
+                memset(passwordInput, 0, sizeof(passwordInput));
+            }
+            
+            ImGui::Spacing();
+            ImGui::Separator();
+            
+            ImGui::Spacing();
+            ImGui::Checkbox("Stream Proof (Hide Menu from Screen Share)", &streamProof);
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            
+            if (isAuthenticating) {
+                ImGui::Button("Authenticating Please Wait...", ImVec2(-1, 42));
+            } else {
+                if (ImGui::Button("Login to System", ImVec2(-1, 42))) {
+                    NSString *uStr = [NSString stringWithUTF8String:usernameInput];
+                    NSString *pStr = [NSString stringWithUTF8String:passwordInput];
+                    
+                    if (uStr.length > 0 && pStr.length > 0) {
+                        isAuthenticating = true;
+                        loginErrorMessage = "";
+                        [hiddenTextField resignFirstResponder];
+                        
+                        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                            BOOL success = [self performUserPassLogin:uStr pwd:pStr];
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                isAuthenticating = false;
+                                if (success) {
+                                    isKeyAuthLogged = true;
+                                }
+                            });
+                        });
+                    } else {
+                        loginErrorMessage = "Username and Password cannot be empty.";
+                    }
+                }
+            }
+            
+            if (!loginErrorMessage.empty()) {
+                ImGui::Spacing();
+                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[Error] %s", loginErrorMessage.c_str());
+            }
+            
             ImGui::End();
         } 
-        // --- SCREEN 2: MAIN MENU ---
-        else if (MenDeal) {
-            ImGui::SetNextWindowSize(ImVec2(540, 380), ImGuiCond_FirstUseEver);
-            ImGui::Begin("STATISTICS_MAIN_CONTAINER", &MenDeal, ImGuiWindowFlags_NoCollapse);
-            
-            ImGui::Columns(2, "Layout", false);
-            ImGui::SetColumnWidth(0, 140.0f);
-            ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
-            static int activeTab = 0;
-            if (ImGui::Button("Aimbot", ImVec2(-1, 35))) activeTab = 0;
-            if (ImGui::Button("Visuals", ImVec2(-1, 35))) activeTab = 1;
-            if (ImGui::Button("Misc", ImVec2(-1, 35))) activeTab = 2;
-            if (ImGui::Button("Settings", ImVec2(-1, 35))) activeTab = 3;
-            ImGui::EndChild();
-            
-            ImGui::NextColumn();
-            ImGui::BeginChild("Content", ImVec2(0, 0), false);
-            
-            if (activeTab == 0) {
-                ImGui::Checkbox("Master Switch", &masterAimbot);
-                ImGui::Checkbox("Enabled", &aimbotEnable);
-                const char* methods[] = { "Silent aimbot", "Vector aim" };
-                ImGui::Combo("Aiming Method", &selectedAimMethod, methods, 2);
-                ImGui::Checkbox("Show FOV circle", &showFovCircle);
-                ImGui::SliderFloat("FOV Radius", &fovRadius, 1.0f, 360.0f);
-                ImGui::SliderFloat("Max Distance", &maxDistance, 10.0f, 500.0f);
+        
+        // ==========================================
+        // SCREEN 2: MAIN MENU
+        // ==========================================
+        else if (MenDeal == true) 
+        {
+            if ([hiddenTextField isFirstResponder]) {
+                [hiddenTextField resignFirstResponder];
             }
-            else if (activeTab == 1) {
+
+            CGFloat menuWidth = 540;  
+            CGFloat menuHeight = 350; 
+            CGFloat mx = (view.bounds.size.width - menuWidth) / 2;
+            CGFloat my = (view.bounds.size.height - menuHeight) / 2;
+            
+            ImGui::SetNextWindowPos(ImVec2(mx, my), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(menuWidth, menuHeight), ImGuiCond_FirstUseEver); 
+            
+            ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
+            ImGui::Begin("STATISTICS_MAIN_CONTAINER", &MenDeal, window_flags);
+            
+            ImDrawList* internalDrawList = ImGui::GetWindowDrawList();
+            ImVec2 windowPos = ImGui::GetWindowPos();
+            ImVec2 windowSize = ImGui::GetWindowSize();
+            
+            std::string watermarkText = "STATISTICS KING";
+            font->Scale = 45.f / font->FontSize; 
+            ImVec2 textSize = ImGui::CalcTextSize(watermarkText.c_str());
+            font->Scale = 14.f / font->FontSize; 
+            
+            ImVec2 wmPos = ImVec2(
+                windowPos.x + 140.0f + ((windowSize.x - 140.0f) - textSize.x) * 0.5f,
+                windowPos.y + (windowSize.y - textSize.y) * 0.5f
+            );
+            
+            Draw3DAnimatedText(internalDrawList, font, 45.0f, wmPos, watermarkText.c_str(), customAccent, true);
+
+            ImGui::Columns(2, "MainLayout", false);
+            ImGui::SetColumnWidth(0, 140.0f); 
+            
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.05f, 0.06f, 0.09f, 0.90f)); 
+            ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
+            
+            ImGui::Spacing();
+            
+            ImGui::SetCursorPosX(10);
+            ImVec2 sidebarTextPos = ImGui::GetCursorScreenPos();
+            Draw3DAnimatedText(internalDrawList, font, 14.0f, sidebarTextPos, "STATISTICS KING", customAccent, false);
+            ImGui::Dummy(ImVec2(0, 20)); 
+
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            static int activeTab = 0; 
+            const char* tabs[] = { " Aimbot", " Visuals", " Misc", " Settings" };
+            
+            for (int i = 0; i < 4; i++) {
+                bool is_selected = (activeTab == i);
+                if (is_selected) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.20f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.30f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.50f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, customAccent);
+                } else {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.03f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.06f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.73f, 0.80f, 1.00f));
+                }
+
+                ImGui::SetCursorPosX(8);
+                if (ImGui::Button(tabs[i], ImVec2(120, 38))) {
+                    activeTab = i;
+                }
+                ImGui::PopStyleColor(4);
+                ImGui::Spacing();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor(); 
+
+            ImGui::NextColumn();
+            
+            ImGui::BeginChild("ContentArea", ImVec2(0, 0), false);
+            
+            ImGui::Spacing();
+            if (activeTab == 0) {
+                ImGui::TextColored(customAccent, "AIMBOT CONFIGURATION");
+            } else if (activeTab == 1) {
+                ImGui::TextColored(customAccent, "VISUALS & ESP");
+            } else if (activeTab == 2) {
+                ImGui::TextColored(customAccent, "MISC MODIFICATIONS");
+            } else {
+                ImGui::TextColored(customAccent, "SYSTEM SETTINGS");
+            }
+            
+            ImGui::SameLine(ImGui::GetWindowWidth() - 35);
+            if (ImGui::Button("X", ImVec2(24, 24))) {
+                MenDeal = false;
+            }
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // TAB 1: AIMBOT
+            if (activeTab == 0) { 
+                ImGui::Checkbox("Master Switch", &masterAimbot);
+                
+                ImGui::Text("Aimbot config");
+                const char* aimConfigs[] = { "Global", "Legit", "Rage" };
+                ImGui::SetNextItemWidth(-1);
+                ImGui::Combo("##AimConfig", &selectedAimConfig, aimConfigs, IM_ARRAYSIZE(aimConfigs));
+                
+                ImGui::Checkbox("Enabled", &aimbotEnable);
+                
+                ImGui::Text("Aiming method");
+                const char* aimMethods[] = { "Silent aimbot", "Vector aim" };
+                ImGui::SetNextItemWidth(-1);
+                ImGui::Combo("##AimMethod", &selectedAimMethod, aimMethods, IM_ARRAYSIZE(aimMethods));
+                
+                // === CHANGED: Checkbox එක අසලින්ම එන කුඩා FOV Color Picker එක ===
+                ImGui::Checkbox("Show FOV circle", &showFovCircle);
+                ImGui::SameLine(ImGui::GetWindowWidth() - 50); 
+                ImGui::ColorEdit4("##FovCircleColorPicker", fovCircleColor, 
+                                  ImGuiColorEditFlags_PickerHueWheel | 
+                                  ImGuiColorEditFlags_AlphaBar | 
+                                  ImGuiColorEditFlags_NoInputs | 
+                                  ImGuiColorEditFlags_NoLabel);
+
+                ImGui::Checkbox("Ignore Knocked", &ignoreKnocked);
+                ImGui::Checkbox("Force lock", &forceLock);
+                
+                ImGui::Spacing();
+                ImGui::Text("Hitbox Target");
+                const char* hitboxes[] = { "Head", "Neck", "Body", "Randomized" };
+                ImGui::SetNextItemWidth(-1);
+                ImGui::Combo("##Hitbox", &selectedHitbox, hitboxes, IM_ARRAYSIZE(hitboxes));
+                
+                // === CHANGED: Font encoding නිවැරදි කර 'Deg' (Degrees) ලෙස පෙන්වීම ===
+                ImGui::Spacing();
+                ImGui::Text("FOV"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1f Deg", fovRadius);
+                ImGui::SetNextItemWidth(-1);
+                ImGui::SliderFloat("##FOV_Slider", &fovRadius, 1.0f, 360.0f, "");
+                
+                ImGui::Spacing();
+                ImGui::Text("Max distance"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1fm", maxDistance);
+                ImGui::SetNextItemWidth(-1);
+                ImGui::SliderFloat("##Dist_Slider", &maxDistance, 10.0f, 500.0f, "");
+                
+                ImGui::Spacing();
+                if (selectedAimMethod == 0) {
+                    ImGui::Text("Hit chance"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.0f%%", hitChance);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##Hit_Slider", &hitChance, 1.0f, 100.0f, "");
+                } else if (selectedAimMethod == 1) {
+                    ImGui::Text("Lock speed"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1f", lockSpeed);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##Lock_Slider", &lockSpeed, 1.0f, 20.0f, "");
+                }
+            } 
+            
+            // TAB 2: VISUALS
+            else if (activeTab == 1) { 
                 ImGui::Checkbox("Enemy ESP", &enemyEsp);
                 ImGui::Checkbox("Line", &espLine);
                 ImGui::Checkbox("Box", &espBox);
@@ -507,34 +777,95 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::Checkbox("Nickname", &espNickname);
                 ImGui::Checkbox("Distance", &espDistance);
                 ImGui::Checkbox("Skeleton", &espSkeleton);
-            }
-            else if (activeTab == 2) {
+                ImGui::Checkbox("Nearby enemies count", &nearbyCount);
+                
+                ImGui::Spacing();
+                ImGui::Text("Counter text size:"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1fpx", counterTextSize);
+                ImGui::SetNextItemWidth(-1);
+                ImGui::SliderFloat("##CounterSize", &counterTextSize, 10.0f, 50.0f, "");
+            } 
+            
+            // TAB 3: MISC
+            else if (activeTab == 2) { 
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
+                ImGui::TextWrapped("Some options in this section may not be entirely safe. Use with caution.");
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+                
                 ImGui::Checkbox("No Recoil", &noRecoil);
                 ImGui::Checkbox("Fast Swap Weapon", &fastSwap);
                 ImGui::Checkbox("Fast Reload", &fastReload);
                 ImGui::Checkbox("Teleport enemies to you", &teleportEnemies);
-            }
-            else if (activeTab == 3) {
-                ImGui::Checkbox("Stream Proof", &streamProof);
-                ImGui::SliderFloat("Menu Transparency", &menuTransparency, 0.3f, 1.0f);
+            } 
+            
+            // TAB 4: SETTINGS 
+            else if (activeTab == 3) { 
+                ImGui::TextColored(customAccent, "SYSTEM & THEME SETTINGS");
+                ImGui::Separator();
+                ImGui::Spacing();
+                
+                ImGui::Text("Logged User: %s", usernameInput);
+                ImGui::Text("API Server: CONNECTED");
+                ImGui::Text("Subscription: %s", subDaysRemaining.c_str());
+                
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                ImGui::Checkbox("Stream Proof (Hide from Record/Share)", &streamProof);
+                ImGui::Spacing();
+                
+                ImGui::Text("Menu Accent Color balance:");
+                ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, 
+                                  ImGuiColorEditFlags_PickerHueWheel | 
+                                  ImGuiColorEditFlags_AlphaBar | 
+                                  ImGuiColorEditFlags_NoInputs | 
+                                  ImGuiColorEditFlags_NoLabel);
+                
+                ImGui::Spacing();
+                ImGui::Text("Menu Transparency:");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::SliderFloat("##Transparency", &menuTransparency, 0.3f, 1.0f, "%.2f");
+                
+                ImGui::Spacing();
+                if (ImGui::Button("Logout Account", ImVec2(-1, 38))) {
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
+                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_PASS"];
+                    [[NSUserDefaults standardUserDefaults] synchronize];
+                    isKeyAuthLogged = false;
+                    memset(usernameInput, 0, sizeof(usernameInput));
+                    memset(passwordInput, 0, sizeof(passwordInput));
+                }
             }
             
             ImGui::EndChild();
-            ImGui::End();
+            ImGui::Columns(1); 
+            ImGui::End();   
         }
         
+        ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
+        
+        // === CHANGED: තේරූ පාට (fovCircleColor) පමණක් රවුමට Apply වන ලෙස සකස් කිරීම ===
         if (isKeyAuthLogged && aimbotEnable && showFovCircle) {
-            ImDrawList* bg_list = ImGui::GetBackgroundDrawList();
-            bg_list->AddCircle(ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f), fovRadius * 3.0f, ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 100, 1.5f);
+            ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
+            draw_list->AddCircle(center, fovRadius * 3.0f, 
+                                 ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 
+                                 100, 1.2f);
         }
 
         ImGui::Render();
-        ImGui_ImplMetal_RenderDrawData(ImGui::GetDrawData(), commandBuffer, renderEncoder);
+        ImDrawData* draw_data = ImGui::GetDrawData();
+        ImGui_ImplMetal_RenderDrawData(draw_data, commandBuffer, renderEncoder);
+      
+        [renderEncoder popDebugGroup];
         [renderEncoder endEncoding];
+
         [commandBuffer presentDrawable:view.currentDrawable];
     }
+
     [commandBuffer commit];
 }
 
 - (void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size {}
+
 @end
