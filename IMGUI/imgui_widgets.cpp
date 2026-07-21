@@ -5998,6 +5998,19 @@ bool ImGui::CollapsingHeader(const char* label, bool* p_visible, ImGuiTreeNodeFl
     return is_open;
 }
 
+bool ImGui::CollapsingHeader(const char* label, int* select, int type, ImGuiTreeNodeFlags flags)
+{
+    ImGuiWindow* window = GetCurrentWindow();
+    if (window->SkipItems)
+        return false;
+    
+    SetNextItemOpen(*select == type);
+
+    if(TreeNodeBehavior(window->GetID(label), flags | ImGuiTreeNodeFlags_CollapsingHeader, label))
+            *select = type;
+    return *select == type;
+}
+
 //-------------------------------------------------------------------------
 // [SECTION] Widgets: Selectable
 //-------------------------------------------------------------------------
