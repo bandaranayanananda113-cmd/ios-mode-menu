@@ -3,6 +3,11 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #include <math.h>
+#include <mach-o/dyld.h>
+#include <mach/mach.h>
+#include <mach/vm_map.h>
+#include <libkern/OSCacheControl.h> // ARM64 Cache Clear
+#include <string>
 
 // Imgui library
 #import "Esp/CaptainHook.h"
@@ -29,24 +34,61 @@ static bool MenDeal = true;
 // ==========================================
 // 1. GAME OFFSETS PLACEHOLDERS
 // ==========================================
-// ඔයාගේ Offsets ටික මෙතනට දාන්න (උදාහරණයක් විදියට 0x0 දාලා තියෙන්නේ)
 #define OFFSET_NO_RECOIL       0x0000000 
 #define OFFSET_FAST_SWAP       0x0000000 
 #define OFFSET_FAST_RELOAD     0x0000000 
 #define OFFSET_TELEPORT        0x0000000 
 
-// Aimbot & ESP අදාළ Offsets
 #define OFFSET_AIMBOT_LOCK     0x0000000 
+#define OFFSET_SILENT_AIM      0x0000000
 #define OFFSET_CAMERA_FOV      0x0000000
 #define OFFSET_ESP_BONE        0x0000000
 
 // ==========================================
-// 3D ANIMATED TEXT RENDERER
+// SAFE MEMORY PATCHING FUNCTIONS 
 // ==========================================
-static void Draw3DAnimatedText(ImDrawList* drawList, ImFont* font, float fontSize, ImVec2 pos, const char* text, ImVec4 accent, bool isWatermark) {
+uintptr_t get_GameModule_Base(const char* moduleName) {
+    uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; i++) {
+        const char* name = _dyld_get_image_name(i);
+        if (name && strstr(name, moduleName)) {
+            return (uintptr_t)_dyld_get_image_header(i);
+        }
+    }
+    return 0;
+}
+
+uintptr_t getLocalRealOffset(uintptr_t offset) {
+    if (offset == 0) return 0; 
+    
+    static uintptr_t base = 0;
+    if (base == 0) {
+        base = get_GameModule_Base("GameAssembly.dylib"); 
+    }
+    if (base == 0) return 0;
+    return base + offset;
+}
+
+void safePatchMemory(uintptr_t address, const uint8_t* bytes, size_t size) {
+    if (address == 0) return; 
+    
+    static uintptr_t base = get_GameModule_Base("GameAssembly.dylib");
+    if (address == base) return; 
+
+    vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_WRITE);
+    memcpy((void*)address, bytes, size);
+    vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_EXEC);
+    
+    sys_icache_invalidate((void*)address, size);
+}
+
+// ==========================================
+// 3D ANIMATED TEXT RENDERER (UPDATED - No Font Scaling Lag)
+// ==========================================
+static void Draw3DAnimatedText(ImDrawList* drawList, ImVec2 pos, const char* text, ImVec4 accent, bool isWatermark) {
     float time = (float)ImGui::GetTime();
     
-    float baseAlpha = isWatermark ? 0.08f : 1.0f; // Watermark opacity පොඩ්ඩක් අඩු කළා
+    float baseAlpha = isWatermark ? 0.08f : 1.0f;
     float pulse = (sin(time * 4.0f) + 1.0f) * 0.5f; 
     int depth = isWatermark ? 3 : 5; 
     
@@ -55,24 +97,30 @@ static void Draw3DAnimatedText(ImDrawList* drawList, ImFont* font, float fontSiz
         float offsetY = i + cos(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
         
         float shadowAlpha = isWatermark ? 0.03f : 0.4f;
-        drawList->AddText(font, fontSize, ImVec2(pos.x + offsetX, pos.y + offsetY), 
-                          ImColor(10, 10, 15, (int)(shadowAlpha * 255)), text);
+        // Pushed font automatically applies here
+        drawList->AddText(ImVec2(pos.x + offsetX, pos.y + offsetY), ImColor(10, 10, 15, (int)(shadowAlpha * 255)), text);
     }
     
     float r = accent.x + (1.0f - accent.x) * pulse * 0.4f;
     float g = accent.y + (1.0f - accent.y) * pulse * 0.4f;
     float b = accent.z + (1.0f - accent.z) * pulse * 0.4f;
     
-    drawList->AddText(font, fontSize, pos, ImColor(r, g, b, baseAlpha), text);
+    drawList->AddText(pos, ImColor(r, g, b, baseAlpha), text);
 }
 
 // ==========================================
-// KEYAUTH USERPASS CONFIGURATION
+// SECURE STRINGS (Basic Base64 decoder to hide from raw String searches)
 // ==========================================
-static NSString *const kaName = @"EXLITER PRO";
-static NSString *const kaOwnerId = @"JU1KcBIQwE";
-static NSString *const kaSecret = @"b0ffff3c2299551401bdfcf35ea9be8283c0aab612cc0241c5d813e4f0f2a393";
-static NSString *const kaVersion = @"1.0";
+NSString* DecodeBase64(NSString* encodedString) {
+    NSData *decodedData = [[NSData alloc] initWithBase64EncodedString:encodedString options:0];
+    return [[NSString alloc] initWithData:decodedData encoding:NSUTF8StringEncoding];
+}
+
+// ==========================================
+// GLOBAL VARIABLES
+// ==========================================
+static ImFont* fontMain = nullptr;
+static ImFont* fontTitle = nullptr;
 
 static bool isKeyAuthLogged = false;
 static char usernameInput[64] = ""; 
@@ -82,14 +130,16 @@ static std::string subDaysRemaining = "0";
 static std::string loginErrorMessage = "";
 static bool isAuthenticating = false;
 
-// ==========================================
-// PROFESSIONAL CHEAT VARIABLES
-// ==========================================
+// Cheat Config
+static bool streamProof = true;
+static bool isStreamProofUpdating = false; // Prevent UI thread lock
+
 static bool masterAimbot = false;
 static bool aimbotEnable = false;
 static int selectedAimConfig = 0; 
 static int selectedAimMethod = 0; 
 static bool showFovCircle = false;
+static float fovCircleColor[4] = {1.00f, 0.32f, 0.12f, 1.00f};
 static bool ignoreKnocked = false;
 static bool forceLock = false;
 static int selectedHitbox = 0; 
@@ -118,42 +168,46 @@ static float menuTransparency = 0.90f;
 
 static UITextField *hiddenTextField = nil;
 
+
 // ==========================================
-// 2. APPLY HACKS LOGIC (ඔයාගේ Memory Patch Code ටික මෙතනට දාන්න)
+// 2. APPLY HACKS LOGIC
 // ==========================================
 void UpdateHacks() {
-    if (!isKeyAuthLogged) return; // Login වෙලා නැත්නම් වැඩ කරන්නෙ නෑ
+    if (!isKeyAuthLogged) return; 
 
-    // Aimbot Logic
+    static bool lastMasterAim = false;
+    static bool lastAimEnable = false;
+    static int lastAimMethod = -1;
+
     if (masterAimbot && aimbotEnable) {
-        // උදාහරණ: write(OFFSET_AIMBOT_LOCK, (void*)hex, size);
-        if (selectedAimMethod == 0) {
-            // Silent Aim Patch 
-        } else {
-            // Vector Aim Patch
+        if (!lastMasterAim || !lastAimEnable || lastAimMethod != selectedAimMethod) {
+            if (selectedAimMethod == 0) {
+                uintptr_t addr = getLocalRealOffset(OFFSET_SILENT_AIM);
+                const uint8_t patch[] = { 0x20, 0x00, 0x80, 0xD2 };
+                safePatchMemory(addr, patch, sizeof(patch));
+            } else {
+                uintptr_t addr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
+                const uint8_t patch[] = { 0x00, 0x01, 0x80, 0xD2 };
+                safePatchMemory(addr, patch, sizeof(patch));
+            }
         }
-    } else {
-        // Restore Aimbot
     }
+    lastMasterAim = masterAimbot;
+    lastAimEnable = aimbotEnable;
+    lastAimMethod = selectedAimMethod;
 
-    // Visuals ESP Logic
-    if (enemyEsp) {
-        if (espLine) { /* Line ESP Hook */ }
-        if (espBox)  { /* Box ESP Hook */ }
-        // අනිත් ESP ටිකටත් මෙහෙම දාගන්න
+    static bool lastNoRecoil = false;
+    if (noRecoil != lastNoRecoil) {
+        uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
+        if (noRecoil) {
+            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
+            safePatchMemory(addr, patch, sizeof(patch));
+        } else {
+            const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; 
+            safePatchMemory(addr, restore, sizeof(restore));
+        }
+        lastNoRecoil = noRecoil;
     }
-
-    // Misc Logic
-    if (noRecoil) {
-        // උදාහරණ: 
-        // patchMemory(OFFSET_NO_RECOIL, "00 00 A0 E3 1E FF 2F E1"); // ARM code
-    } else {
-        // restoreMemory(OFFSET_NO_RECOIL);
-    }
-
-    if (fastSwap) { /* Fast swap logic */ }
-    if (fastReload) { /* Fast reload logic */ }
-    if (teleportEnemies) { /* Teleport logic */ }
 }
 
 const char* GetClipboardTextFn(void* user_data) {
@@ -169,12 +223,20 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 @interface ImGuiDrawView () <MTKViewDelegate, UITextFieldDelegate>
 @property (nonatomic, strong) id <MTLDevice> device;
 @property (nonatomic, strong) id <MTLCommandQueue> commandQueue;
+@property (nonatomic, strong) MTKView *mtkViewObj;
+@property (nonatomic, strong) UITextField *secureContainerField; 
 @end
 
 @implementation ImGuiDrawView
 
 - (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
+    
+    // Using Base64 decoded strings for safety
+    NSString *kaName = DecodeBase64(@"RVhMSVRFUiBQUk8="); // "EXLITER PRO"
+    NSString *kaOwnerId = DecodeBase64(@"SlUxS2NCSVF3RQ=="); // "JU1KcBIQwE"
+    NSString *kaSecret = DecodeBase64(@"YjBmZmZmM2MyMjk5NTUxNDAxYmRmY2YzNWVhOWJlODI4M2MwYWFiNjEyY2MwMjQxYzVkODEzZTRmMGYyYTM5Mw==");
+    NSString *kaVersion = @"1.0";
     
     NSMutableURLRequest *initRequest = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [initRequest setHTTPMethod:@"POST"];
@@ -278,7 +340,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     _device = MTLCreateSystemDefaultDevice();
     _commandQueue = [_device newCommandQueue];
 
-    if (!self.device) abort();
+    if (!self.device) return nil;
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -286,14 +348,15 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     io.GetClipboardTextFn = GetClipboardTextFn;
     io.SetClipboardTextFn = SetClipboardTextFn;
     
-    ImFont* font = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
-    ImGui_ImplMetal_Init(_device);
+    // Load two fonts to prevent scaling flicker
+    fontMain = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 14.0f, NULL, io.Fonts->GetGlyphRangesDefault());
+    fontTitle = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     
+    ImGui_ImplMetal_Init(_device);
     return self;
 }
 
-+ (void)showChange:(BOOL)open
-{
++ (void)showChange:(BOOL)open {
     if (!isKeyAuthLogged) {
         MenDeal = true;
     } else {
@@ -301,25 +364,33 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     }
 }
 
-- (MTKView *)mtkView
-{
-    return (MTKView *)self.view;
-}
-
-- (void)loadView
-{
+- (void)loadView {
     CGFloat w = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.width;
     CGFloat h = [UIApplication sharedApplication].windows[0].rootViewController.view.frame.size.height;
-    self.view = [[MTKView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
+    
+    self.view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
+    self.view.backgroundColor = [UIColor clearColor];
+    
+    self.secureContainerField = [[UITextField alloc] initWithFrame:self.view.bounds];
+    self.secureContainerField.backgroundColor = [UIColor clearColor];
+    self.secureContainerField.secureTextEntry = streamProof;
+    self.secureContainerField.userInteractionEnabled = NO;
+    [self.view addSubview:self.secureContainerField];
+    
+    self.mtkViewObj = [[MTKView alloc] initWithFrame:self.view.bounds];
+    self.mtkViewObj.clearColor = MTLClearColorMake(0, 0, 0, 0);
+    self.mtkViewObj.backgroundColor = [UIColor clearColor];
+    self.mtkViewObj.clipsToBounds = YES;
+    self.mtkViewObj.userInteractionEnabled = NO; 
+    
+    UIView *secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
+    [secureLayer addSubview:self.mtkViewObj]; 
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.mtkView.device = self.device;
-    self.mtkView.delegate = self;
-    self.mtkView.clearColor = MTLClearColorMake(0, 0, 0, 0);
-    self.mtkView.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0];
-    self.mtkView.clipsToBounds = YES;
+    self.mtkViewObj.device = self.device;
+    self.mtkViewObj.delegate = self;
 
     hiddenTextField = [[UITextField alloc] initWithFrame:CGRectMake(-100, -100, 10, 10)];
     hiddenTextField.keyboardType = UIKeyboardTypeASCIICapable;
@@ -332,6 +403,20 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self.view addGestureRecognizer:longPress];
 
     [self tryAutoLogin];
+}
+
+- (void)updateStreamProofState {
+    if (self.secureContainerField.secureTextEntry == streamProof) {
+        isStreamProofUpdating = false;
+        return;
+    }
+    
+    [self.mtkViewObj removeFromSuperview];
+    self.secureContainerField.secureTextEntry = streamProof;
+    
+    UIView *secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
+    [secureLayer addSubview:self.mtkViewObj];
+    isStreamProofUpdating = false;
 }
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
@@ -354,18 +439,15 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     }
 }
 
-- (void)updateIOWithTouchEvent:(UIEvent *)event
-{
+- (void)updateIOWithTouchEvent:(UIEvent *)event {
     UITouch *anyTouch = event.allTouches.anyObject;
     CGPoint touchLocation = [anyTouch locationInView:self.view];
     ImGuiIO &io = ImGui::GetIO();
     io.MousePos = ImVec2(touchLocation.x, touchLocation.y);
 
     BOOL hasActiveTouch = NO;
-    for (UITouch *touch in event.allTouches)
-    {
-        if (touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled)
-        {
+    for (UITouch *touch in event.allTouches) {
+        if (touch.phase != UITouchPhaseEnded && touch.phase != UITouchPhaseCancelled) {
             hasActiveTouch = YES;
             break;
         }
@@ -385,8 +467,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 
-- (void)drawInMTKView:(MTKView*)view
-{
+- (void)drawInMTKView:(MTKView*)view {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize.x = view.bounds.size.width;
     io.DisplaySize.y = view.bounds.size.height;
@@ -404,14 +485,20 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     }
     wasWantTextInput = io.WantTextInput;
 
+    // Secure Dispatch for Stream Proof
+    if (self.secureContainerField.secureTextEntry != streamProof && !isStreamProofUpdating) {
+        isStreamProofUpdating = true;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self updateStreamProofState];
+        });
+    }
+
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     
     if (!isKeyAuthLogged) {
         [self.view setUserInteractionEnabled:YES];
     } else {
         [self.view setUserInteractionEnabled:(MenDeal ? YES : NO)];
-        
-        // Execute Hack logic repeatedly in the render loop when menu is closed or open
         UpdateHacks();
     }
 
@@ -454,9 +541,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         colors[ImGuiCol_Text]                   = ImVec4(0.92f, 0.94f, 0.98f, 1.00f); 
         colors[ImGuiCol_TextDisabled]           = ImVec4(0.55f, 0.58f, 0.65f, 1.00f); 
         
-        ImFont* font = ImGui::GetFont();
-        font->Scale = 14.f / font->FontSize;
-        
         // ==========================================
         // SCREEN 1: LOGIN (WITH CLEAR BUTTONS)
         // ==========================================
@@ -477,12 +561,17 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
             
-            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(15, 18, 25, 255), 12.0f, ImDrawCornerFlags_All);
+            // New rounded corners flag
+            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(15, 18, 25, 255), 12.0f, ImDrawFlags_RoundCornersAll);
             drawList->AddLine(ImVec2(pos.x, pos.y + 65), ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 2.0f);
             
             ImGui::SetCursorPos(ImVec2(20, 18));
             ImVec2 textPos = ImGui::GetCursorScreenPos();
-            Draw3DAnimatedText(drawList, font, 24.0f, textPos, "STATISTICS KING", customAccent, false);
+            
+            ImGui::PushFont(fontTitle); // Use Title font
+            Draw3DAnimatedText(drawList, textPos, "STATISTICS KING", customAccent, false);
+            ImGui::PopFont();
+            
             ImGui::Dummy(ImVec2(0, 30)); 
             
             ImGui::SetCursorPos(ImVec2(20, 48));
@@ -490,9 +579,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             
             ImGui::SetCursorPosY(85);
             
-            // USERNAME FIELD WITH CLEAR BUTTON
             ImGui::TextDisabled("Username:");
-            ImGui::SetNextItemWidth(260); // Width adjusted to fit button
+            ImGui::SetNextItemWidth(260); 
             ImGui::InputText("##UserField", usernameInput, IM_ARRAYSIZE(usernameInput));
             ImGui::SameLine();
             if (ImGui::Button("Clear##1", ImVec2(55, 0))) {
@@ -501,9 +589,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             
             ImGui::Spacing();
             
-            // PASSWORD FIELD WITH CLEAR BUTTON
             ImGui::TextDisabled("Password:");
-            ImGui::SetNextItemWidth(260); // Width adjusted to fit button
+            ImGui::SetNextItemWidth(260); 
             ImGui::InputText("##PassField", passwordInput, IM_ARRAYSIZE(passwordInput), ImGuiInputTextFlags_Password);
             ImGui::SameLine();
             if (ImGui::Button("Clear##2", ImVec2(55, 0))) {
@@ -569,24 +656,20 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
             ImGui::Begin("STATISTICS_MAIN_CONTAINER", &MenDeal, window_flags);
             
-            // --- HUGE 3D ANIMATED WATERMARK (CENTERED IN CONTENT AREA) ---
             ImDrawList* internalDrawList = ImGui::GetWindowDrawList();
             ImVec2 windowPos = ImGui::GetWindowPos();
             ImVec2 windowSize = ImGui::GetWindowSize();
             
             std::string watermarkText = "STATISTICS KING";
-            font->Scale = 45.f / font->FontSize; 
+            ImGui::PushFont(fontTitle); // Use big font to calculate
             ImVec2 textSize = ImGui::CalcTextSize(watermarkText.c_str());
-            font->Scale = 14.f / font->FontSize; 
             
-            // Sidebar එක 140px නිසා Watermark එක දකුණු පැත්තට Center වෙන්න හැදුවා
             ImVec2 wmPos = ImVec2(
                 windowPos.x + 140.0f + ((windowSize.x - 140.0f) - textSize.x) * 0.5f,
                 windowPos.y + (windowSize.y - textSize.y) * 0.5f
             );
-            
-            Draw3DAnimatedText(internalDrawList, font, 45.0f, wmPos, watermarkText.c_str(), customAccent, true);
-            // ------------------------------------------
+            Draw3DAnimatedText(internalDrawList, wmPos, watermarkText.c_str(), customAccent, true);
+            ImGui::PopFont(); // Return to normal font
 
             ImGui::Columns(2, "MainLayout", false);
             ImGui::SetColumnWidth(0, 140.0f); 
@@ -598,7 +681,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             
             ImGui::SetCursorPosX(10);
             ImVec2 sidebarTextPos = ImGui::GetCursorScreenPos();
-            Draw3DAnimatedText(internalDrawList, font, 14.0f, sidebarTextPos, "STATISTICS KING", customAccent, false);
+            Draw3DAnimatedText(internalDrawList, sidebarTextPos, "STATISTICS KING", customAccent, false);
             ImGui::Dummy(ImVec2(0, 20)); 
 
             ImGui::Separator();
@@ -669,7 +752,14 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::SetNextItemWidth(-1);
                 ImGui::Combo("##AimMethod", &selectedAimMethod, aimMethods, IM_ARRAYSIZE(aimMethods));
                 
+                // FOV Circle + Color Picker
                 ImGui::Checkbox("Show FOV circle", &showFovCircle);
+                ImGui::SameLine(); 
+                ImGui::ColorEdit4("##FovCircleColorPicker", fovCircleColor, 
+                                  ImGuiColorEditFlags_NoInputs | 
+                                  ImGuiColorEditFlags_AlphaBar | 
+                                  ImGuiColorEditFlags_PickerHueWheel);
+
                 ImGui::Checkbox("Ignore Knocked", &ignoreKnocked);
                 ImGui::Checkbox("Force lock", &forceLock);
                 
@@ -744,8 +834,13 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                 ImGui::Spacing();
                 ImGui::Separator();
                 ImGui::Spacing();
+
+                // Stream Proof Toggle Button
+                ImGui::Text("Security:");
+                ImGui::Checkbox("Stream Proof (Hide Screen Recording)", &streamProof);
+                ImGui::Spacing();
                 
-                ImGui::Text("Menu Accent Color balance:");
+                ImGui::Text("Menu Accent Color:");
                 ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, 
                                   ImGuiColorEditFlags_PickerHueWheel | 
                                   ImGuiColorEditFlags_AlphaBar | 
@@ -777,7 +872,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         
         if (isKeyAuthLogged && aimbotEnable && showFovCircle) {
             ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
-            draw_list->AddCircle(center, fovRadius * 3.0f, ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 100, 1.2f);
+            draw_list->AddCircle(center, fovRadius * 3.0f, 
+                                 ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 
+                                 100, 1.2f);
         }
 
         ImGui::Render();
