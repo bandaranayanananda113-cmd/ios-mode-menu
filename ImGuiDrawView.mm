@@ -20,7 +20,7 @@
 #import "IMGUI/imgui_impl_metal.h"
 #import "IMGUI/Honkai.h" // Font File
 
-// Patch library (ඔයාගේ bypass / patch files)
+// Patch library
 #import "5Toubun/NakanoIchika.h"
 #import "5Toubun/NakanoNino.h"
 #import "5Toubun/NakanoMiku.h"
@@ -36,7 +36,6 @@ static bool MenDeal = true;
 
 // ==========================================
 // 1. GAME OFFSETS 
-// (මේවා ඔයා හොයාගත්ත Offsets වලින් Update කරන්න)
 // ==========================================
 #define OFFSET_NO_RECOIL       0x0000000 
 #define OFFSET_FAST_SWAP       0x0000000 
@@ -46,7 +45,7 @@ static bool MenDeal = true;
 #define OFFSET_AIMBOT_LOCK     0x0000000 
 #define OFFSET_SILENT_AIM      0x0000000 
 
-// ESP සඳහා අවශ්‍ය Offsets
+// ESP Offsets
 #define OFFSET_UWORLD          0x0000000 
 #define OFFSET_VIEW_MATRIX     0x0000000 
 #define OFFSET_ENTITY_LIST     0x0000000 
@@ -73,7 +72,6 @@ struct FMatrix {
     float m[4][4];
 };
 
-// 3D ලෝකයේ තියෙන Enemy කෙනෙක්ගේ position එක Screen එකේ 2D තැනකට හරවන Function එක 
 bool WorldToScreen(Vector3 worldPosition, Vector2& screenPosition, FMatrix viewMatrix, float width, float height) {
     float w = viewMatrix.m[0][3] * worldPosition.x + viewMatrix.m[1][3] * worldPosition.y + viewMatrix.m[2][3] * worldPosition.z + viewMatrix.m[3][3];
     if (w < 0.001f) return false;
@@ -91,7 +89,6 @@ bool WorldToScreen(Vector3 worldPosition, Vector2& screenPosition, FMatrix viewM
 
 // ==========================================
 // 3. SAFE MEMORY PATCHING 
-// (Game Memory එක ආරක්ෂිතව Edit කිරීම)
 // ==========================================
 uintptr_t get_GameModule_Base(const char* moduleName) {
     uint32_t count = _dyld_image_count();
@@ -108,7 +105,7 @@ uintptr_t getLocalRealOffset(uintptr_t offset) {
     if (offset == 0) return 0; 
     static uintptr_t base = 0;
     if (base == 0) {
-        base = get_GameModule_Base("GameAssembly.dylib"); // Unity Games වලට
+        base = get_GameModule_Base("GameAssembly.dylib"); 
     }
     if (base == 0) return 0;
     return base + offset;
@@ -141,19 +138,17 @@ static bool isAuthenticating = false;
 
 // Hack Features Switches
 static bool streamProof = true;
-static bool isStreamProofUpdating = false; 
-
 static bool masterAimbot = false;
 static bool aimbotEnable = false;
-static int selectedAimConfig = 0; 
 static int selectedAimMethod = 0; 
 static bool showFovCircle = false;
-static float fovCircleColor[4] = {0.35f, 0.45f, 0.95f, 1.00f}; // Premium Blue Color
 static bool ignoreKnocked = false;
 static bool forceLock = false;
 static int selectedHitbox = 0; 
-static float fovRadius = 50.0f;
-static float maxDistance = 150.0f;
+
+// Sliders සඳහා Variables
+static float fovRadius = 30.0f;
+static float maxDistance = 100.0f;
 static float hitChance = 80.0f;
 static float lockSpeed = 5.0f; 
 
@@ -162,16 +157,14 @@ static bool espLine = false;
 static bool espBox = false;
 static bool espHealth = false;
 static bool espSkeleton = false;
-static float counterTextSize = 25.0f;
 
 static bool noRecoil = false;
 static bool fastSwap = false;
 static bool fastReload = false;
-static bool teleportEnemies = false;
 
-static float menuAccentColor[4] = {0.35f, 0.45f, 0.95f, 1.00f}; 
+// Theme Colors (Default: Website එකේ වගේ Neon Purple / Cyan Theme එක)
+static float menuAccentColor[4] = {0.45f, 0.20f, 1.00f, 1.00f}; // Purple Accent
 static float menuTransparency = 0.95f;
-static UITextField *hiddenTextField = nil;
 
 NSString* DecodeBase64(NSString* encodedString) {
     NSData *decodedData = [[NSData alloc] initWithBase64EncodedString:encodedString options:0];
@@ -180,7 +173,6 @@ NSString* DecodeBase64(NSString* encodedString) {
 
 // ==========================================
 // 5. APPLY HACKS LOGIC (Hex Codes)
-// Menu එකේ Button On/Off කරද්දී Hex Code වදින තැන
 // ==========================================
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
@@ -192,11 +184,12 @@ void UpdateHacks() {
 
     if (masterAimbot && aimbotEnable) {
         if (!lastMasterAim || !lastAimEnable || lastAimMethod != selectedAimMethod) {
-            if (selectedAimMethod == 0) { // Silent Aim
+            
+            if (selectedAimMethod == 0) { 
                 uintptr_t addr = getLocalRealOffset(OFFSET_SILENT_AIM);
                 const uint8_t patch[] = { 0x20, 0x00, 0x80, 0xD2 }; 
                 safePatchMemory(addr, patch, sizeof(patch));
-            } else { // Lock Aim
+            } else { 
                 uintptr_t addr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
                 const uint8_t patch[] = { 0x00, 0x01, 0x80, 0xD2 };
                 safePatchMemory(addr, patch, sizeof(patch));
@@ -205,11 +198,11 @@ void UpdateHacks() {
     } else if (lastMasterAim && lastAimEnable && (!masterAimbot || !aimbotEnable)) {
         if (lastAimMethod == 0) {
             uintptr_t addr = getLocalRealOffset(OFFSET_SILENT_AIM);
-            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; // Original Hex
+            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         } else {
             uintptr_t addr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
-            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; // Original Hex
+            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
     }
@@ -220,7 +213,7 @@ void UpdateHacks() {
     if (noRecoil != lastNoRecoil) {
         uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
         if (noRecoil) {
-            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; // NOP 
+            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 };  
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
             const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; 
@@ -228,46 +221,13 @@ void UpdateHacks() {
         }
         lastNoRecoil = noRecoil;
     }
-
-    // --- FAST SWAP ---
-    static bool lastFastSwap = false;
-    if (fastSwap != lastFastSwap) {
-        uintptr_t addr = getLocalRealOffset(OFFSET_FAST_SWAP);
-        if (fastSwap) {
-            const uint8_t patch[] = { 0x00, 0x00, 0x80, 0xD2 }; 
-            safePatchMemory(addr, patch, sizeof(patch));
-        } else {
-            const uint8_t restore[] = { 0xF4, 0x4F, 0x01, 0xA9 }; 
-            safePatchMemory(addr, restore, sizeof(restore));
-        }
-        lastFastSwap = fastSwap;
-    }
 }
 
 // ==========================================
-// 6. RENDER ESP (Screen එකේ අඳින කොටස)
+// 6. RENDER ESP
 // ==========================================
 void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
     if (!enemyEsp) return;
-
-    // මෙහිදී ඔයාගේ Game Entity Loop එක ලියන්න ඕනේ. (Memory Reading)
-    // උදාහරණයක් විදිහට Box සහ Line අඳින Code එක පහතින් තියෙනවා:
-    /*
-    Vector2 screenHead, screenFeet;
-    if (WorldToScreen(enemyHeadPos, screenHead, viewMatrix, displaySize.x, displaySize.y) &&
-        WorldToScreen(enemyFeetPos, screenFeet, viewMatrix, displaySize.x, displaySize.y)) {
-        
-        float height = fabsf(screenFeet.y - screenHead.y);
-        float width = height / 2.0f;
-        
-        if (espBox) {
-            drawList->AddRect(ImVec2(screenHead.x - width/2, screenHead.y), ImVec2(screenHead.x + width/2, screenFeet.y), IM_COL32(255, 0, 0, 255), 0, 0, 1.5f);
-        }
-        if (espLine) {
-            drawList->AddLine(ImVec2(displaySize.x / 2, 0), ImVec2(screenHead.x, screenHead.y), IM_COL32(255, 255, 255, 200), 1.0f);
-        }
-    }
-    */
 }
 
 // ==========================================
@@ -282,14 +242,12 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
 
 @implementation ImGuiDrawView
 
-// KeyAuth Login Function එක
 - (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
     NSString *kaName = DecodeBase64(@"RVhMSVRFUiBQUk8="); 
     NSString *kaOwnerId = DecodeBase64(@"SlUxS2NCSVF3RQ=="); 
     NSString *kaSecret = DecodeBase64(@"YjBmZmZmM2MyMjk5NTUxNDAxYmRmY2YzNWVhOWJlODI4M2MwYWFiNjEyY2MwMjQxYzVkODEzZTRmMGYyYTM5Mw==");
     
-    // Init Request
     NSMutableURLRequest *initReq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [initReq setHTTPMethod:@"POST"];
     NSString *initData = [NSString stringWithFormat:@"type=init&name=%@&ownerid=%@&secret=%@&ver=1.0", kaName, kaOwnerId, kaSecret];
@@ -310,7 +268,6 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
     
     NSString *sessionId = initJson[@"sessionid"];
     
-    // Login Request
     NSMutableURLRequest *logReq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [logReq setHTTPMethod:@"POST"];
     NSString *logData = [NSString stringWithFormat:@"type=login&username=%@&pass=%@&sessionid=%@&name=%@&ownerid=%@", user, pass, sessionId, kaName, kaOwnerId];
@@ -325,7 +282,23 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
     dispatch_semaphore_wait(sema2, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
     
     if (logJson && [logJson[@"success"] boolValue]) {
-        // Save Details & Calculate Expiry
+        NSArray *subscriptions = logJson[@"info"][@"subscriptions"];
+        if (subscriptions && subscriptions.count > 0) {
+            NSDictionary *sub = subscriptions[0];
+            NSString *expiryTimestamp = sub[@"expiry"];
+            
+            NSTimeInterval time = [expiryTimestamp doubleValue];
+            NSDate *expiryDate = [NSDate dateWithTimeIntervalSince1970:time];
+            
+            NSDateFormatter *df = [[NSDateFormatter alloc] init];
+            [df setDateFormat:@"yyyy-MM-dd"];
+            subExpiryDate = std::string([[df stringFromDate:expiryDate] UTF8String]);
+            
+            NSTimeInterval diff = [expiryDate timeIntervalSinceNow];
+            int days = (int)(diff / (60 * 60 * 24));
+            subDaysRemaining = std::to_string(MAX(0, days));
+        }
+        
         [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"STATISTICS_USER"];
         [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"STATISTICS_PASS"];
         return YES;
@@ -335,7 +308,6 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
     }
 }
 
-// ... (ViewDidLoad සහ Touch Events කලින් කේතයේ තිබූ ආකාරයටම මෙතනට අදාළ වේ. ඒවා වෙනස් කර නැත.) ...
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil {
     self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
     _device = MTLCreateSystemDefaultDevice();
@@ -350,7 +322,8 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
     self.view.backgroundColor = [UIColor clearColor];
     
     self.secureContainerField = [[UITextField alloc] initWithFrame:self.view.bounds];
-    self.secureContainerField.secureTextEntry = streamProof; // Hide from recording
+    self.secureContainerField.secureTextEntry = streamProof;
+    self.secureContainerField.userInteractionEnabled = NO;
     [self.view addSubview:self.secureContainerField];
     
     self.mtkViewObj = [[MTKView alloc] initWithFrame:self.view.bounds];
@@ -372,8 +345,7 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
 }
 
 // ==========================================
-// 8. PREMIUM IMGUI RENDER LOOP 
-// (අලුත් ලස්සන UI එක මෙතන තියෙන්නේ)
+// 8. RENDER LOOP WITH DYNAMIC COLOR PICKER
 // ==========================================
 - (void)drawInMTKView:(MTKView*)view {
     ImGuiIO& io = ImGui::GetIO();
@@ -388,48 +360,44 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
         ImGui_ImplMetal_NewFrame(rpd);
         ImGui::NewFrame();
         
-        // --- PREMIUM STYLE CONFIGURATION ---
+        // --- NEON PURPLE / CYAN THEME CONFIGURATION ---
         ImGuiStyle* style = &ImGui::GetStyle();
-        style->WindowRounding = 12.0f;       // ලස්සන රවුම් මුළු
-        style->FrameRounding = 6.0f;         // Buttons වල රවුම් ගතිය
+        style->WindowRounding = 12.0f;       
+        style->FrameRounding = 6.0f;         
         style->PopupRounding = 6.0f;
         style->GrabRounding = 6.0f;
         style->TabRounding = 6.0f;
         style->WindowPadding = ImVec2(16, 16); 
         style->ItemSpacing = ImVec2(12, 12);
-        style->WindowBorderSize = 1.0f; 
+        style->WindowBorderSize = 1.5f; 
         
         ImVec4 accentColor = ImVec4(menuAccentColor[0], menuAccentColor[1], menuAccentColor[2], 1.0f);
         
-        style->Colors[ImGuiCol_WindowBg]           = ImVec4(0.07f, 0.07f, 0.09f, menuTransparency); // තද අළු පසුබිම
-        style->Colors[ImGuiCol_Border]             = ImVec4(0.15f, 0.15f, 0.18f, 1.0f);
-        style->Colors[ImGuiCol_FrameBg]            = ImVec4(0.12f, 0.12f, 0.14f, 1.0f);
-        style->Colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.18f, 0.18f, 0.20f, 1.0f);
+        style->Colors[ImGuiCol_WindowBg]           = ImVec4(0.06f, 0.06f, 0.10f, menuTransparency); // Dark Navy/Purple Background
+        style->Colors[ImGuiCol_Border]             = accentColor; // Dynamic Neon Border
+        style->Colors[ImGuiCol_FrameBg]            = ImVec4(0.10f, 0.10f, 0.16f, 1.0f);
+        style->Colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.16f, 0.16f, 0.24f, 1.0f);
         style->Colors[ImGuiCol_FrameBgActive]      = accentColor;
         style->Colors[ImGuiCol_Button]             = accentColor; 
         style->Colors[ImGuiCol_ButtonHovered]      = ImVec4(accentColor.x + 0.1f, accentColor.y + 0.1f, accentColor.z + 0.1f, 1.0f);
         style->Colors[ImGuiCol_CheckMark]          = accentColor;
         style->Colors[ImGuiCol_SliderGrab]         = accentColor;
-        style->Colors[ImGuiCol_Header]             = ImVec4(0.15f, 0.15f, 0.18f, 1.0f); // Dropdowns
+        style->Colors[ImGuiCol_Header]             = ImVec4(0.12f, 0.12f, 0.20f, 1.0f); 
         style->Colors[ImGuiCol_HeaderHovered]      = accentColor;
-        style->Colors[ImGuiCol_Tab]                = ImVec4(0.10f, 0.10f, 0.12f, 1.0f);
+        style->Colors[ImGuiCol_Tab]                = ImVec4(0.08f, 0.08f, 0.14f, 1.0f);
         style->Colors[ImGuiCol_TabHovered]         = accentColor;
         style->Colors[ImGuiCol_TabActive]          = accentColor;
         
-        // --- LOGIN WINDOW ---
         if (!isKeyAuthLogged) {
-            ImGui::SetNextWindowSize(ImVec2(380, 260), ImGuiCond_Always);
-            ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - 380)/2, (io.DisplaySize.y - 260)/2), ImGuiCond_Always);
-            
-            // Title Bar එක අයින් කරලා ලස්සනට පෙන්වන්න
+            ImGui::SetNextWindowSize(ImVec2(380, 280), ImGuiCond_Always);
+            ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - 380)/2, (io.DisplaySize.y - 280)/2), ImGuiCond_Always);
             ImGui::Begin("Login", NULL, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
             
-            // Custom Title
             ImGui::SetCursorPosY(20);
-            ImGui::PushFont(fontTitle); // ලොකු අකුරු Font එක
-            ImVec2 textWidth = ImGui::CalcTextSize("EXLITER PREMIUM");
-            ImGui::SetCursorPosX((380 - textWidth.x) / 2); // මැදට ගන්න
-            ImGui::TextColored(accentColor, "EXLITER PREMIUM");
+            ImGui::PushFont(fontTitle); 
+            ImVec2 textWidth = ImGui::CalcTextSize("KEY DASHBOARD");
+            ImGui::SetCursorPosX((380 - textWidth.x) / 2); 
+            ImGui::TextColored(accentColor, "KEY DASHBOARD");
             ImGui::PopFont();
             
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
@@ -447,7 +415,7 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
             if (isAuthenticating) {
                 ImGui::Button("Please Wait...", ImVec2(-1, 40));
             } else {
-                if (ImGui::Button("SECURE LOGIN", ImVec2(-1, 40))) {
+                if (ImGui::Button("SIGN IN ->", ImVec2(-1, 40))) {
                     isAuthenticating = true;
                     dispatch_async(dispatch_get_global_queue(0,0), ^{
                         BOOL ok = [self performUserPassLogin:[NSString stringWithUTF8String:usernameInput] pwd:[NSString stringWithUTF8String:passwordInput]];
@@ -458,99 +426,148 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
                     });
                 }
             }
-            
             if (!loginErrorMessage.empty()) {
                 ImGui::TextColored(ImVec4(1, 0.3, 0.3, 1), "%s", loginErrorMessage.c_str());
             }
+            
+            ImGui::Spacing();
+            // Footer Text მსგავსව
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.6f, 1.0f));
+            ImGui::Text("Developed by @chamikadinith | Dashboard 2026");
+            ImGui::PopStyleColor();
+
             ImGui::End();
         } 
-        // --- MAIN MENU WINDOW ---
         else if (MenDeal) {
-            UpdateHacks(); // Hacks Apply කිරීම
+            UpdateHacks();
             
-            ImGui::SetNextWindowSize(ImVec2(550, 400), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(550, 430), ImGuiCond_FirstUseEver);
             ImGui::Begin("Main Menu", &MenDeal, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar);
             
-            // Menu Header
-            ImGui::TextColored(accentColor, "EXLITER PRO");
+            ImGui::TextColored(accentColor, "STATISTICS KING PRO");
             ImGui::SameLine(ImGui::GetWindowWidth() - 35);
-            if (ImGui::Button("X", ImVec2(25, 25))) MenDeal = false; // Close Button
+            
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+            if (ImGui::Button("X", ImVec2(25, 25))) MenDeal = false; 
+            ImGui::PopStyleColor();
             
             ImGui::Separator();
             
             if (ImGui::BeginTabBar("MainTabs")) {
                 
                 // 1. AIMBOT TAB
-                if (ImGui::BeginTabItem("  AIMBOT  ")) {
+                if (ImGui::BeginTabItem(" Aimbot ")) {
                     ImGui::Spacing();
-                    ImGui::Checkbox("Enable Aimbot", &aimbotEnable);
-                    ImGui::SameLine(ImGui::GetWindowWidth() - 150);
-                    ImGui::Checkbox("Master Switch", &masterAimbot);
                     
-                    ImGui::Separator();
+                    ImGui::Checkbox("Ignore Knocked", &ignoreKnocked);
+                    ImGui::SameLine(180);
+                    ImGui::Checkbox("Force Lock", &forceLock);
+                    ImGui::SameLine(320);
+                    ImGui::Checkbox("Enable Aimbot", &aimbotEnable);
+                    ImGui::SameLine(450);
+                    ImGui::Checkbox("Master", &masterAimbot);
+                    
+                    ImGui::Spacing();
                     
                     ImGui::Text("Aim Method");
-                    const char* methods[] = { "Silent Aimbot (Memory)", "Vector Lock (Touch)" };
+                    const char* methods[] = { "Silent Aimbot", "Vector Lock" };
                     ImGui::SetNextItemWidth(-1);
                     ImGui::Combo("##AimMethod", &selectedAimMethod, methods, 2);
                     
-                    ImGui::Text("Hitbox Target");
+                    ImGui::Text("Hitbox");
                     const char* hitboxes[] = { "Head", "Chest", "Pelvis" };
                     ImGui::SetNextItemWidth(-1);
                     ImGui::Combo("##hitbox", &selectedHitbox, hitboxes, 3);
                     
                     ImGui::Spacing();
-                    ImGui::Text("FOV Radius: %.1f", fovRadius);
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##fov", &fovRadius, 10.0f, 300.0f);
                     
-                    ImGui::Checkbox("Show FOV Circle", &showFovCircle);
+                    ImGui::Text("FOV Radius");
+                    ImGui::SameLine(ImGui::GetWindowWidth() - 60);
+                    ImGui::TextColored(accentColor, "%.1f", fovRadius);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##fov", &fovRadius, 10.0f, 300.0f, "");
+                    
+                    ImGui::Text("Max Distance");
+                    ImGui::SameLine(ImGui::GetWindowWidth() - 60);
+                    ImGui::TextColored(accentColor, "%.1fm", maxDistance);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##dist", &maxDistance, 0.0f, 300.0f, "");
+
+                    if (selectedAimMethod == 0) { 
+                        ImGui::Text("Hit Chance");
+                        ImGui::SameLine(ImGui::GetWindowWidth() - 60);
+                        ImGui::TextColored(accentColor, "%.0f%%", hitChance);
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##hitchance", &hitChance, 0.0f, 100.0f, "");
+                    } 
+                    else if (selectedAimMethod == 1) { 
+                        ImGui::Text("Lock Speed");
+                        ImGui::SameLine(ImGui::GetWindowWidth() - 60);
+                        ImGui::TextColored(accentColor, "%.1fs", lockSpeed);
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##lockspeed", &lockSpeed, 0.0f, 10.0f, "");
+                    }
+                    
                     ImGui::EndTabItem();
                 }
                 
                 // 2. VISUALS TAB
-                if (ImGui::BeginTabItem("  VISUALS  ")) {
+                if (ImGui::BeginTabItem(" Visuals ")) {
                     ImGui::Spacing();
-                    ImGui::Columns(2, nullptr, false);
                     ImGui::Checkbox("Enable ESP", &enemyEsp);
                     ImGui::Checkbox("Draw Boxes", &espBox);
                     ImGui::Checkbox("Draw Lines", &espLine);
-                    
-                    ImGui::NextColumn();
-                    ImGui::Checkbox("Show Health", &espHealth);
-                    ImGui::Checkbox("Show Skeletons", &espSkeleton);
-                    ImGui::Columns(1);
                     ImGui::EndTabItem();
                 }
                 
                 // 3. MISC TAB
-                if (ImGui::BeginTabItem("  MISC  ")) {
+                if (ImGui::BeginTabItem(" Misc ")) {
                     ImGui::Spacing();
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "[!] Use Memory features at your own risk.");
-                    ImGui::Separator();
-                    
                     ImGui::Checkbox("No Recoil", &noRecoil);
                     ImGui::Checkbox("Fast Swap Weapon", &fastSwap);
                     ImGui::Checkbox("Fast Reload", &fastReload);
                     ImGui::EndTabItem();
                 }
                 
-                // 4. SETTINGS TAB
-                if (ImGui::BeginTabItem("  SETTINGS  ")) {
-                    ImGui::Spacing();
-                    ImGui::Text("Theme Accent Color");
-                    ImGui::ColorEdit4("##Color", menuAccentColor, ImGuiColorEditFlags_NoInputs);
-                    
-                    ImGui::Text("Menu Transparency");
-                    ImGui::SliderFloat("##Alpha", &menuTransparency, 0.3f, 1.0f);
-                    
-                    ImGui::Checkbox("Stream Proof Mode", &streamProof); // Hide screen record
+                // 4. SETTINGS TAB (මෙතනින් Color Picker එක දමා ඇත - එකෙන් මෙනුවේ පාට වෙනස් වේ)
+                if (ImGui::BeginTabItem(" Settings ")) {
                     ImGui::Spacing();
                     
-                    if (ImGui::Button("Logout", ImVec2(-1, 35))) {
-                        isKeyAuthLogged = false;
-                        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
+                    if (ImGui::Checkbox("Stream Proof Mode", &streamProof)) {
+                        self.secureContainerField.secureTextEntry = streamProof;
                     }
+                    
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                    
+                    // Menu Accent Color Picker එක
+                    ImGui::Text("Menu Accent Color");
+                    ImGui::ColorEdit4("##accColor", menuAccentColor);
+                    
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                    
+                    ImGui::Text("Logged in as:"); 
+                    ImGui::SameLine(180); 
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", usernameInput);
+                    
+                    ImGui::Text("Status / Time:"); 
+                    ImGui::SameLine(180); 
+                    ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Premium Active"); 
+                    ImGui::SameLine();
+                    ImGui::TextColored(accentColor, "(%s Days Left)", subDaysRemaining.c_str()); 
+                    
+                    ImGui::Text("Expiry Date:"); 
+                    ImGui::SameLine(180); 
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", subExpiryDate.c_str());
+
+                    ImGui::Spacing(); ImGui::Spacing();
+                    
+                    ImGui::TextColored(accentColor, "KeyAuth Application Details");
+                    ImGui::Separator(); ImGui::Spacing();
+
+                    ImGui::Text("App Name:"); ImGui::SameLine(180); ImGui::Text("EXLITER PRO");
+                    ImGui::Text("Owner ID:"); ImGui::SameLine(180); ImGui::Text("JU1KcBIQwE");
+                    ImGui::Text("Version:");  ImGui::SameLine(180); ImGui::Text("1.0");
+                    
                     ImGui::EndTabItem();
                 }
                 ImGui::EndTabBar();
@@ -558,7 +575,6 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
             ImGui::End();
         }
         
-        // --- DRAW ESP & FOV BACKGROUND ---
         ImDrawList* bgDraw = ImGui::GetBackgroundDrawList();
         
         if (isKeyAuthLogged && aimbotEnable && showFovCircle) {
