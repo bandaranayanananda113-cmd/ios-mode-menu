@@ -11,7 +11,7 @@
 #include <vector>
 
 // ==========================================
-// අවශ්‍ය වන Libraries (ImGui සහ Hooking)
+// Libraries
 // ==========================================
 #import "Esp/CaptainHook.h"
 #import "Esp/ImGuiDrawView.h"
@@ -146,7 +146,7 @@ static bool ignoreKnocked = false;
 static bool forceLock = false;
 static int selectedHitbox = 0; 
 
-// Sliders සඳහා Variables
+// Sliders Variables
 static float fovRadius = 30.0f;
 static float maxDistance = 100.0f;
 static float hitChance = 80.0f;
@@ -162,17 +162,19 @@ static bool noRecoil = false;
 static bool fastSwap = false;
 static bool fastReload = false;
 
-// Theme Colors (Default: Neon Purple / Cyan Theme)
-static float menuAccentColor[4] = {0.45f, 0.20f, 1.00f, 1.00f}; // Purple Accent
+// Theme Colors
+static float menuAccentColor[4] = {0.45f, 0.20f, 1.00f, 1.00f};
 static float menuTransparency = 0.95f;
 
 NSString* DecodeBase64(NSString* encodedString) {
+    if (!encodedString || encodedString.length == 0) return @"";
     NSData *decodedData = [[NSData alloc] initWithBase64EncodedString:encodedString options:0];
-    return [[NSString alloc] initWithData:decodedData encoding:NSUTF8StringEncoding];
+    if (!decodedData) return @"";
+    return [[NSString alloc] initWithData:decodedData encoding:NSUTF8StringEncoding] ?: @"";
 }
 
 // ==========================================
-// 5. APPLY HACKS LOGIC (Hex Codes)
+// 5. APPLY HACKS LOGIC
 // ==========================================
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
@@ -184,7 +186,6 @@ void UpdateHacks() {
 
     if (masterAimbot && aimbotEnable) {
         if (!lastMasterAim || !lastAimEnable || lastAimMethod != selectedAimMethod) {
-            
             if (selectedAimMethod == 0) { 
                 uintptr_t addr = getLocalRealOffset(OFFSET_SILENT_AIM);
                 const uint8_t patch[] = { 0x20, 0x00, 0x80, 0xD2 }; 
@@ -238,69 +239,98 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
 @property (nonatomic, strong) id <MTLCommandQueue> commandQueue;
 @property (nonatomic, strong) MTKView *mtkViewObj;
 @property (nonatomic, strong) UITextField *secureContainerField; 
+@property (nonatomic, assign) BOOL isImGuiInitialized;
 @end
 
 @implementation ImGuiDrawView
 
 - (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
+    if (!user || !pass || user.length == 0 || pass.length == 0) {
+        loginErrorMessage = "Please enter valid credentials.";
+        return NO;
+    }
+
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
     NSString *kaName = DecodeBase64(@"RVhMSVRFUiBQUk8="); 
     NSString *kaOwnerId = DecodeBase64(@"SlUxS2NCSVF3RQ=="); 
     NSString *kaSecret = DecodeBase64(@"YjBmZmZmM2MyMjk5NTUxNDAxYmRmY2YzNWVhOWJlODI4M2MwYWFiNjEyY2MwMjQxYzVkODEzZTRmMGYyYTM5Mw==");
     
+    // Step 1: INIT Request
     NSMutableURLRequest *initReq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [initReq setHTTPMethod:@"POST"];
+    [initReq setTimeoutInterval:10.0];
     NSString *initData = [NSString stringWithFormat:@"type=init&name=%@&ownerid=%@&secret=%@&ver=1.0", kaName, kaOwnerId, kaSecret];
     [initReq setHTTPBody:[initData dataUsingEncoding:NSUTF8StringEncoding]];
     
     __block NSDictionary *initJson = nil;
     dispatch_semaphore_t sema1 = dispatch_semaphore_create(0);
     [[[NSURLSession sharedSession] dataTaskWithRequest:initReq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
-        if (d) initJson = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+        if (d && !e) {
+            initJson = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+        }
         dispatch_semaphore_signal(sema1);
     }] resume];
-    dispatch_semaphore_wait(sema1, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
+    
+    if (dispatch_semaphore_wait(sema1, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC)) != 0) {
+        loginErrorMessage = "Connection Timeout (Init).";
+        return NO;
+    }
     
     if (!initJson || ![initJson[@"success"] boolValue]) {
-        loginErrorMessage = "Server Connection Failed.";
+        loginErrorMessage = initJson[@"message"] ? [initJson[@"message"] UTF8String] : "Server Connection Failed.";
         return NO;
     }
     
     NSString *sessionId = initJson[@"sessionid"];
+    if (!sessionId) {
+        loginErrorMessage = "Invalid Session ID.";
+        return NO;
+    }
     
+    // Step 2: LOGIN Request
     NSMutableURLRequest *logReq = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:apiUrl]];
     [logReq setHTTPMethod:@"POST"];
+    [logReq setTimeoutInterval:10.0];
     NSString *logData = [NSString stringWithFormat:@"type=login&username=%@&pass=%@&sessionid=%@&name=%@&ownerid=%@", user, pass, sessionId, kaName, kaOwnerId];
     [logReq setHTTPBody:[logData dataUsingEncoding:NSUTF8StringEncoding]];
     
     __block NSDictionary *logJson = nil;
     dispatch_semaphore_t sema2 = dispatch_semaphore_create(0);
     [[[NSURLSession sharedSession] dataTaskWithRequest:logReq completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {
-        if (d) logJson = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+        if (d && !e) {
+            logJson = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+        }
         dispatch_semaphore_signal(sema2);
     }] resume];
-    dispatch_semaphore_wait(sema2, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
+    
+    if (dispatch_semaphore_wait(sema2, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC)) != 0) {
+        loginErrorMessage = "Connection Timeout (Login).";
+        return NO;
+    }
     
     if (logJson && [logJson[@"success"] boolValue]) {
         NSArray *subscriptions = logJson[@"info"][@"subscriptions"];
-        if (subscriptions && subscriptions.count > 0) {
+        if (subscriptions && [subscriptions isKindOfClass:[NSArray class]] && subscriptions.count > 0) {
             NSDictionary *sub = subscriptions[0];
             NSString *expiryTimestamp = sub[@"expiry"];
             
-            NSTimeInterval time = [expiryTimestamp doubleValue];
-            NSDate *expiryDate = [NSDate dateWithTimeIntervalSince1970:time];
-            
-            NSDateFormatter *df = [[NSDateFormatter alloc] init];
-            [df setDateFormat:@"yyyy-MM-dd"];
-            subExpiryDate = std::string([[df stringFromDate:expiryDate] UTF8String]);
-            
-            NSTimeInterval diff = [expiryDate timeIntervalSinceNow];
-            int days = (int)(diff / (60 * 60 * 24));
-            subDaysRemaining = std::to_string(MAX(0, days));
+            if (expiryTimestamp) {
+                NSTimeInterval time = [expiryTimestamp doubleValue];
+                NSDate *expiryDate = [NSDate dateWithTimeIntervalSince1970:time];
+                
+                NSDateFormatter *df = [[NSDateFormatter alloc] init];
+                [df setDateFormat:@"yyyy-MM-dd"];
+                subExpiryDate = std::string([[df stringFromDate:expiryDate] UTF8String] ?: "N/A");
+                
+                NSTimeInterval diff = [expiryDate timeIntervalSinceNow];
+                int days = (int)(diff / (60 * 60 * 24));
+                subDaysRemaining = std::to_string(MAX(0, days));
+            }
         }
         
         [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"STATISTICS_USER"];
         [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"STATISTICS_PASS"];
+        loginErrorMessage = "";
         return YES;
     } else {
         loginErrorMessage = logJson[@"message"] ? [logJson[@"message"] UTF8String] : "Invalid Credentials.";
@@ -310,18 +340,25 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
 
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil {
     self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
-    _device = MTLCreateSystemDefaultDevice();
-    _commandQueue = [_device newCommandQueue];
+    if (self) {
+        _device = MTLCreateSystemDefaultDevice();
+        _commandQueue = [_device newCommandQueue];
+        _isImGuiInitialized = NO;
+    }
+    return self;
+}
+
+- (void)setupImGui {
+    if (_isImGuiInitialized) return;
     
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     
-    // FIX: Default Font එක එකතු කර fontTitle එක Null නොවෙන ලෙස සකස් කළා
     fontMain = io.Fonts->AddFontDefault();
     fontTitle = fontMain;
     
     ImGui_ImplMetal_Init(_device);
-    return self;
+    _isImGuiInitialized = YES;
 }
 
 - (void)loadView {
@@ -342,19 +379,26 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
 }
 
 - (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (!_isImGuiInitialized) return;
     UITouch *touch = touches.anyObject;
     CGPoint p = [touch locationInView:self.view];
     ImGui::GetIO().MousePos = ImVec2(p.x, p.y);
     ImGui::GetIO().MouseDown[0] = YES;
 }
+
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (!_isImGuiInitialized) return;
     ImGui::GetIO().MouseDown[0] = NO;
 }
 
 // ==========================================
-// 8. RENDER LOOP WITH DYNAMIC COLOR PICKER
+// 8. RENDER LOOP
 // ==========================================
 - (void)drawInMTKView:(MTKView*)view {
+    if (!_isImGuiInitialized) {
+        [self setupImGui];
+    }
+    
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize.x = view.bounds.size.width;
     io.DisplaySize.y = view.bounds.size.height;
@@ -367,7 +411,7 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
         ImGui_ImplMetal_NewFrame(rpd);
         ImGui::NewFrame();
         
-        // --- NEON PURPLE / CYAN THEME CONFIGURATION ---
+        // --- STYLING ---
         ImGuiStyle* style = &ImGui::GetStyle();
         style->WindowRounding = 12.0f;       
         style->FrameRounding = 6.0f;         
@@ -402,16 +446,11 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
             
             ImGui::SetCursorPosY(20);
             
-            // FIX: Font එක Null ද නැද්ද කියා තහවුරු කර ගැනීම
-            if (fontTitle != nullptr) {
-                ImGui::PushFont(fontTitle); 
-            }
+            if (fontTitle) ImGui::PushFont(fontTitle); 
             ImVec2 textWidth = ImGui::CalcTextSize("KEY DASHBOARD");
             ImGui::SetCursorPosX((380 - textWidth.x) / 2); 
             ImGui::TextColored(accentColor, "KEY DASHBOARD");
-            if (fontTitle != nullptr) {
-                ImGui::PopFont();
-            }
+            if (fontTitle) ImGui::PopFont();
             
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
             
@@ -430,10 +469,9 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
             } else {
                 if (ImGui::Button("SIGN IN ->", ImVec2(-1, 40))) {
                     isAuthenticating = true;
-                    dispatch_async(dispatch_get_global_queue(0,0), ^{
-                        // FIX: Empty string නිසා වෙන Crash වැළැක්වීම
-                        NSString *usrStr = usernameInput[0] != '\0' ? [NSString stringWithUTF8String:usernameInput] : @"";
-                        NSString *pwdStr = passwordInput[0] != '\0' ? [NSString stringWithUTF8String:passwordInput] : @"";
+                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                        NSString *usrStr = [NSString stringWithUTF8String:usernameInput];
+                        NSString *pwdStr = [NSString stringWithUTF8String:passwordInput];
                         BOOL ok = [self performUserPassLogin:usrStr pwd:pwdStr];
                         dispatch_async(dispatch_get_main_queue(), ^{
                             isAuthenticating = false;
@@ -605,5 +643,7 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
     }
     [commandBuffer commit];
 }
+
 - (void)mtkView:(MTKView*)view drawableSizeWillChange:(CGSize)size {}
+
 @end
