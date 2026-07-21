@@ -6,7 +6,7 @@
 #include <mach-o/dyld.h>
 #include <mach/mach.h>
 #include <mach/vm_map.h>
-#include <libkern/OSCacheControl.h> // ARM64 Cache Clear
+#include <libkern/OSCacheControl.h>
 #include <string>
 
 // Imgui library
@@ -34,25 +34,15 @@ static bool MenDeal = true;
 // ==========================================
 // 1. GAME OFFSETS PLACEHOLDERS
 // ==========================================
-// මෙතන තියෙන 0x0000000 වෙනුවට ඔයා හොයාගත්ත Game Offsets දාන්න.
+#define OFFSET_NO_RECOIL       0x0000000 
+#define OFFSET_FAST_SWAP       0x0000000 
+#define OFFSET_FAST_RELOAD     0x0000000 
+#define OFFSET_TELEPORT        0x0000000 
 
-// --- MISC MODIFICATIONS (Memory Patch කරන Offsets) ---
-#define OFFSET_NO_RECOIL       0x0000000 // No Recoil එකට අදාල Offset එක මෙතන දාන්න
-#define OFFSET_FAST_SWAP       0x0000000 // ඉක්මනින් ආයුධ මාරු කිරීමේ (Fast Swap) Offset එක
-#define OFFSET_FAST_RELOAD     0x0000000 // ඉක්මනින් රීලෝඩ් කිරීමේ (Fast Reload) Offset එක
-#define OFFSET_TELEPORT        0x0000000 // Teleport Enemies සඳහා Offset එක
-
-// --- AIMBOT OFFSETS (Memory Patch කරන Offsets) ---
-#define OFFSET_AIMBOT_LOCK     0x0000000 // Vector Aim (Aimbot Lock) Offset එක
-#define OFFSET_SILENT_AIM      0x0000000 // Silent Aimbot Offset එක (උණ්ඩය ඉබේම enemy ට වදින)
-
-// --- ESP & VISUALS OFFSETS (Memory Read කරන Offsets) ---
-// මතක තබාගන්න: ESP වැඩ කරන්නේ Hex Patch වලින් නෙවෙයි. ඒවට මේ වගේ Memory Read කරන්න Offsets ඕන වෙනවා.
-#define OFFSET_UWORLD          0x0000000 // GWorld / UWorld Offset එක (Entity list එක හොයාගන්න)
-#define OFFSET_VIEW_MATRIX     0x0000000 // ViewMatrix Offset එක (3D World එක 2D Screen එකට ගේන්න)
-#define OFFSET_LOCAL_PLAYER    0x0000000 // Local Player ගේ Offset එක
-#define OFFSET_ENTITY_LIST     0x0000000 // Enemy Entity List Offset එක (අනිත් ප්ලේයර්ස්ලා හොයන්න)
-#define OFFSET_BONE_ARRAY      0x0000000 // Skeleton ESP එකට අවශ්‍ය Bone Array Offset එක
+#define OFFSET_AIMBOT_LOCK     0x0000000 
+#define OFFSET_SILENT_AIM      0x0000000
+#define OFFSET_CAMERA_FOV      0x0000000
+#define OFFSET_ESP_BONE        0x0000000
 
 // ==========================================
 // SAFE MEMORY PATCHING FUNCTIONS 
@@ -93,28 +83,15 @@ void safePatchMemory(uintptr_t address, const uint8_t* bytes, size_t size) {
 }
 
 // ==========================================
-// 3D ANIMATED TEXT RENDERER (UPDATED - No Font Scaling Lag)
+// CLEAN SHADOW TEXT RENDERER (Replacing the ugly 3D text)
 // ==========================================
-static void Draw3DAnimatedText(ImDrawList* drawList, ImVec2 pos, const char* text, ImVec4 accent, bool isWatermark) {
-    float time = (float)ImGui::GetTime();
-    
-    float baseAlpha = isWatermark ? 0.08f : 1.0f;
-    float pulse = (sin(time * 4.0f) + 1.0f) * 0.5f; 
-    int depth = isWatermark ? 3 : 5; 
-    
-    for (int i = depth; i > 0; i--) {
-        float offsetX = i + sin(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
-        float offsetY = i + cos(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
-        
-        float shadowAlpha = isWatermark ? 0.03f : 0.4f;
-        drawList->AddText(ImVec2(pos.x + offsetX, pos.y + offsetY), ImColor(10, 10, 15, (int)(shadowAlpha * 255)), text);
-    }
-    
-    float r = accent.x + (1.0f - accent.x) * pulse * 0.4f;
-    float g = accent.y + (1.0f - accent.y) * pulse * 0.4f;
-    float b = accent.z + (1.0f - accent.z) * pulse * 0.4f;
-    
-    drawList->AddText(pos, ImColor(r, g, b, baseAlpha), text);
+static void DrawCleanShadowText(ImDrawList* drawList, ImVec2 pos, const char* text, ImVec4 color, float fontSize, ImFont* font) {
+    ImGui::PushFont(font);
+    // Draw Shadow
+    drawList->AddText(ImVec2(pos.x + 1.5f, pos.y + 1.5f), ImColor(0, 0, 0, 200), text);
+    // Draw Text
+    drawList->AddText(pos, ImColor(color.x, color.y, color.z, color.w), text);
+    ImGui::PopFont();
 }
 
 // ==========================================
@@ -148,7 +125,7 @@ static bool aimbotEnable = false;
 static int selectedAimConfig = 0; 
 static int selectedAimMethod = 0; 
 static bool showFovCircle = false;
-static float fovCircleColor[4] = {1.00f, 0.32f, 0.12f, 1.00f};
+static float fovCircleColor[4] = {0.45f, 0.28f, 0.85f, 1.00f}; // Default nice purple
 static bool ignoreKnocked = false;
 static bool forceLock = false;
 static int selectedHitbox = 0; 
@@ -172,11 +149,11 @@ static bool fastSwap = false;
 static bool fastReload = false;
 static bool teleportEnemies = false;
 
-static float menuAccentColor[4] = {1.00f, 0.32f, 0.12f, 1.00f}; 
-static float menuTransparency = 0.90f;
+// Modern Default Theme Colors
+static float menuAccentColor[4] = {0.45f, 0.28f, 0.85f, 1.00f}; // Purple accent
+static float menuTransparency = 0.95f;
 
 static UITextField *hiddenTextField = nil;
-
 
 // ==========================================
 // 2. APPLY HACKS LOGIC (WITH HEX CODES)
@@ -191,89 +168,69 @@ void UpdateHacks() {
 
     if (masterAimbot && aimbotEnable) {
         if (!lastMasterAim || !lastAimEnable || lastAimMethod != selectedAimMethod) {
-            
             if (selectedAimMethod == 0) {
-                // 1. Silent Aimbot
                 uintptr_t addr = getLocalRealOffset(OFFSET_SILENT_AIM);
-                // පහත { 0x00, 0x00, 0x00, 0x00 } වෙනුවට Silent Aim ON කරන Hex code එක දාන්න
                 const uint8_t patch[] = { 0x20, 0x00, 0x80, 0xD2 }; 
                 safePatchMemory(addr, patch, sizeof(patch));
-                
             } else {
-                // 2. Vector Aim (Lock)
                 uintptr_t addr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
-                // පහත { 0x00, 0x00, 0x00, 0x00 } වෙනුවට Aimbot Lock ON කරන Hex code එක දාන්න
                 const uint8_t patch[] = { 0x00, 0x01, 0x80, 0xD2 };
                 safePatchMemory(addr, patch, sizeof(patch));
             }
         }
     }
-    // සටහන: Aimbot OFF කරනකොට Restore වෙන Logic එක මේකට අවශ්‍ය නම්, පහළ තියෙන Misc Hacks වල වගේ වෙනස් කරගන්න පුළුවන්.
     
     lastMasterAim = masterAimbot;
     lastAimEnable = aimbotEnable;
     lastAimMethod = selectedAimMethod;
 
     // --- MISC HACKS LOGIC ---
-    
-    // 3. No Recoil
     static bool lastNoRecoil = false;
     if (noRecoil != lastNoRecoil) {
         uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
         if (noRecoil) {
-            // ON කරද්දි වදින්න ඕන අලුත් Hex Code එක (Patch)
             const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            // OFF කරද්දි ආපහු හැදෙන්න ඕන Game එකේ Original Hex Code එක (Restore)
             const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastNoRecoil = noRecoil;
     }
 
-    // 4. Fast Swap
     static bool lastFastSwap = false;
     if (fastSwap != lastFastSwap) {
         uintptr_t addr = getLocalRealOffset(OFFSET_FAST_SWAP);
         if (fastSwap) {
-            // ON කරද්දි වදින්න ඕන අලුත් Hex Code එක (Patch)
             const uint8_t patch[] = { 0x00, 0x00, 0x80, 0xD2 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            // OFF කරද්දි ආපහු හැදෙන්න ඕන Game එකේ Original Hex Code එක (Restore)
             const uint8_t restore[] = { 0xF4, 0x4F, 0x01, 0xA9 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastSwap = fastSwap;
     }
 
-    // 5. Fast Reload
     static bool lastFastReload = false;
     if (fastReload != lastFastReload) {
         uintptr_t addr = getLocalRealOffset(OFFSET_FAST_RELOAD);
         if (fastReload) {
-            // ON කරද්දි වදින්න ඕන අලුත් Hex Code එක (Patch)
             const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            // OFF කරද්දි ආපහු හැදෙන්න ඕන Game එකේ Original Hex Code එක (Restore)
             const uint8_t restore[] = { 0xFD, 0x7B, 0x01, 0xA9 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastReload = fastReload;
     }
 
-    // 6. Teleport Enemies
     static bool lastTeleport = false;
     if (teleportEnemies != lastTeleport) {
         uintptr_t addr = getLocalRealOffset(OFFSET_TELEPORT);
         if (teleportEnemies) {
-            // ON කරද්දි වදින්න ඕන අලුත් Hex Code එක (Patch)
             const uint8_t patch[] = { 0xE0, 0x03, 0x27, 0x1E }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            // OFF කරද්දි ආපහු හැදෙන්න ඕන Game එකේ Original Hex Code එක (Restore)
             const uint8_t restore[] = { 0xE0, 0x03, 0x00, 0xAA }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
@@ -303,8 +260,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 - (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
     NSString *apiUrl = @"https://keyauth.win/api/1.2/";
     
-    NSString *kaName = DecodeBase64(@"RVhMSVRFUiBQUk8="); // "EXLITER PRO"
-    NSString *kaOwnerId = DecodeBase64(@"SlUxS2NCSVF3RQ=="); // "JU1KcBIQwE"
+    NSString *kaName = DecodeBase64(@"RVhMSVRFUiBQUk8="); 
+    NSString *kaOwnerId = DecodeBase64(@"SlUxS2NCSVF3RQ=="); 
     NSString *kaSecret = DecodeBase64(@"YjBmZmZmM2MyMjk5NTUxNDAxYmRmY2YzNWVhOWJlODI4M2MwYWFiNjEyY2MwMjQxYzVkODEzZTRmMGYyYTM5Mw==");
     NSString *kaVersion = @"1.0";
     
@@ -317,12 +274,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     dispatch_semaphore_t sema1 = dispatch_semaphore_create(0);
     
     [[[NSURLSession sharedSession] dataTaskWithRequest:initRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (data) {
-            initJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        }
+        if (data) { initJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil]; }
         dispatch_semaphore_signal(sema1);
     }] resume];
-    
     dispatch_semaphore_wait(sema1, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
     
     if (!initJson || ![initJson[@"success"] boolValue]) {
@@ -342,27 +296,21 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     dispatch_semaphore_t sema2 = dispatch_semaphore_create(0);
     
     [[[NSURLSession sharedSession] dataTaskWithRequest:loginRequest completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        if (data) {
-            loginJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-        }
+        if (data) { loginJson = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil]; }
         dispatch_semaphore_signal(sema2);
     }] resume];
-    
     dispatch_semaphore_wait(sema2, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
     
     if (loginJson && [loginJson[@"success"] boolValue]) {
         NSDictionary *info = loginJson[@"info"];
         if (info) {
             id expiryVal = info[@"expiry"];
-            if (expiryVal) {
-                subExpiryDate = [NSString stringWithFormat:@"%@", expiryVal].UTF8String;
-            }
+            if (expiryVal) { subExpiryDate = [NSString stringWithFormat:@"%@", expiryVal].UTF8String; }
             NSArray *subs = info[@"subscriptions"];
             if (subs && subs.count > 0) {
                 id timeleft = subs[0][@"timeleft"];
                 if (timeleft) {
-                    long long seconds = [timeleft longLongValue];
-                    long long days = seconds / 86400;
+                    long long days = [timeleft longLongValue] / 86400;
                     subDaysRemaining = [NSString stringWithFormat:@"%lld Days", days].UTF8String;
                 }
             }
@@ -371,7 +319,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"STATISTICS_USER"];
         [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"STATISTICS_PASS"];
         [[NSUserDefaults standardUserDefaults] synchronize];
-        
         return YES;
     } else {
         loginErrorMessage = loginJson[@"message"] ? [loginJson[@"message"] UTF8String] : "Invalid Credentials.";
@@ -392,9 +339,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             BOOL success = [self performUserPassLogin:savedUser pwd:savedPass];
             dispatch_async(dispatch_get_main_queue(), ^{
                 isAuthenticating = false;
-                if (success) {
-                    isKeyAuthLogged = true;
-                } else {
+                if (success) { isKeyAuthLogged = true; } 
+                else {
                     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
                     [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_PASS"];
                     [[NSUserDefaults standardUserDefaults] synchronize];
@@ -418,19 +364,16 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     io.GetClipboardTextFn = GetClipboardTextFn;
     io.SetClipboardTextFn = SetClipboardTextFn;
     
-    fontMain = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 14.0f, NULL, io.Fonts->GetGlyphRangesDefault());
-    fontTitle = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 45.0f, NULL, io.Fonts->GetGlyphRangesDefault());
+    fontMain = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 15.0f, NULL, io.Fonts->GetGlyphRangesDefault());
+    fontTitle = io.Fonts->AddFontFromMemoryCompressedTTF((void*)Honkai_compressed_data, Honkai_compressed_size, 24.0f, NULL, io.Fonts->GetGlyphRangesDefault());
     
     ImGui_ImplMetal_Init(_device);
     return self;
 }
 
 + (void)showChange:(BOOL)open {
-    if (!isKeyAuthLogged) {
-        MenDeal = true;
-    } else {
-        MenDeal = open;
-    }
+    if (!isKeyAuthLogged) { MenDeal = true; } 
+    else { MenDeal = open; }
 }
 
 - (void)loadView {
@@ -474,25 +417,36 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self tryAutoLogin];
 }
 
+// ==========================================
+// FULLY FIXED STREAM PROOF TOGGLE (Rebuilds the TextField)
+// ==========================================
 - (void)updateStreamProofState {
     if (self.secureContainerField.secureTextEntry == streamProof) {
         isStreamProofUpdating = false;
         return;
     }
     
+    // Safely remove existing views
     [self.mtkViewObj removeFromSuperview];
-    self.secureContainerField.secureTextEntry = streamProof;
+    [self.secureContainerField removeFromSuperview];
     
+    // Completely recreate the TextField to force iOS to apply the new secure layer state correctly
+    self.secureContainerField = [[UITextField alloc] initWithFrame:self.view.bounds];
+    self.secureContainerField.backgroundColor = [UIColor clearColor];
+    self.secureContainerField.secureTextEntry = streamProof;
+    self.secureContainerField.userInteractionEnabled = NO;
+    [self.view addSubview:self.secureContainerField];
+    
+    // Re-attach MTKView
     UIView *secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
     [secureLayer addSubview:self.mtkViewObj];
+    
     isStreamProofUpdating = false;
 }
 
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     ImGuiIO& io = ImGui::GetIO();
-    for (int i = 0; i < string.length; i++) {
-        io.AddInputCharacter([string characterAtIndex:i]);
-    }
+    for (int i = 0; i < string.length; i++) { io.AddInputCharacter([string characterAtIndex:i]); }
     return NO; 
 }
 
@@ -536,6 +490,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 
+// ==========================================
+// RENDER LOOP (MODERN CLEAN UI IMPLEMENTATION)
+// ==========================================
 - (void)drawInMTKView:(MTKView*)view {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize.x = view.bounds.size.width;
@@ -546,9 +503,8 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     io.DeltaTime = 1 / float(view.preferredFramesPerSecond ?: 120);
     
     static bool wasWantTextInput = false;
-    if (io.WantTextInput && !wasWantTextInput) {
-        [hiddenTextField becomeFirstResponder];
-    } else if (!io.WantTextInput && wasWantTextInput) {
+    if (io.WantTextInput && !wasWantTextInput) { [hiddenTextField becomeFirstResponder]; } 
+    else if (!io.WantTextInput && wasWantTextInput) {
         [hiddenTextField resignFirstResponder];
         hiddenTextField.text = @""; 
     }
@@ -556,16 +512,13 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 
     if (self.secureContainerField.secureTextEntry != streamProof && !isStreamProofUpdating) {
         isStreamProofUpdating = true;
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self updateStreamProofState];
-        });
+        dispatch_async(dispatch_get_main_queue(), ^{ [self updateStreamProofState]; });
     }
 
     id<MTLCommandBuffer> commandBuffer = [self.commandQueue commandBuffer];
     
-    if (!isKeyAuthLogged) {
-        [self.view setUserInteractionEnabled:YES];
-    } else {
+    if (!isKeyAuthLogged) { [self.view setUserInteractionEnabled:YES]; } 
+    else {
         [self.view setUserInteractionEnabled:(MenDeal ? YES : NO)];
         UpdateHacks();
     }
@@ -579,40 +532,50 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         ImGui_ImplMetal_NewFrame(renderPassDescriptor);
         ImGui::NewFrame();
         
+        // --- MODERN SLEEK THEME ---
         ImGuiStyle* style = &ImGui::GetStyle();
-        style->WindowRounding = 12.0f;       
-        style->FrameRounding = 6.0f;        
-        style->GrabRounding = 10.0f;
-        style->PopupRounding = 6.0f;
-        style->ChildRounding = 8.0f;
-        style->WindowPadding = ImVec2(14, 14); 
-        style->FramePadding = ImVec2(10, 8);
-        style->ItemSpacing = ImVec2(10, 10);
+        style->WindowRounding = 8.0f;       
+        style->FrameRounding = 5.0f;        
+        style->GrabRounding = 5.0f;
+        style->PopupRounding = 5.0f;
+        style->ChildRounding = 5.0f;
+        style->TabRounding = 5.0f;
+        style->WindowPadding = ImVec2(15, 15); 
+        style->FramePadding = ImVec2(8, 6);
+        style->ItemSpacing = ImVec2(10, 12);
         style->WindowBorderSize = 1.0f; 
-        style->FrameBorderSize = 1.0f;
+        style->FrameBorderSize = 0.0f;
 
         ImVec4* colors = style->Colors;
-        colors[ImGuiCol_WindowBg]               = ImVec4(0.06f, 0.07f, 0.10f, menuTransparency); 
-        colors[ImGuiCol_ChildBg]                = ImVec4(0.09f, 0.10f, 0.14f, 0.60f); 
-        colors[ImGuiCol_FrameBg]                = ImVec4(0.11f, 0.13f, 0.18f, 1.00f); 
-        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.15f, 0.18f, 0.24f, 1.00f);
-        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.18f, 0.22f, 0.30f, 1.00f);
+        colors[ImGuiCol_WindowBg]               = ImVec4(0.08f, 0.08f, 0.09f, menuTransparency); 
+        colors[ImGuiCol_ChildBg]                = ImVec4(0.12f, 0.12f, 0.13f, 0.60f); 
+        colors[ImGuiCol_FrameBg]                = ImVec4(0.15f, 0.15f, 0.17f, 1.00f); 
+        colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.19f, 0.19f, 0.21f, 1.00f);
+        colors[ImGuiCol_FrameBgActive]          = ImVec4(0.22f, 0.22f, 0.25f, 1.00f);
         
         ImVec4 customAccent = ImVec4(menuAccentColor[0], menuAccentColor[1], menuAccentColor[2], menuAccentColor[3]);
-        colors[ImGuiCol_Border]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.40f); 
+        colors[ImGuiCol_Border]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.60f); 
         colors[ImGuiCol_CheckMark]              = customAccent;
         colors[ImGuiCol_SliderGrab]             = customAccent;
         colors[ImGuiCol_SliderGrabActive]       = ImVec4(customAccent.x + 0.1f, customAccent.y + 0.1f, customAccent.z + 0.1f, 1.0f);
-        colors[ImGuiCol_Button]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.15f); 
-        colors[ImGuiCol_ButtonHovered]          = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.35f);
-        colors[ImGuiCol_ButtonActive]           = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.60f);
-        colors[ImGuiCol_Text]                   = ImVec4(0.92f, 0.94f, 0.98f, 1.00f); 
-        colors[ImGuiCol_TextDisabled]           = ImVec4(0.55f, 0.58f, 0.65f, 1.00f); 
+        colors[ImGuiCol_Button]                 = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.70f); 
+        colors[ImGuiCol_ButtonHovered]          = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.90f);
+        colors[ImGuiCol_ButtonActive]           = ImVec4(customAccent.x - 0.1f, customAccent.y - 0.1f, customAccent.z - 0.1f, 1.0f);
+        
+        // Tab Colors
+        colors[ImGuiCol_Tab]                    = ImVec4(0.15f, 0.15f, 0.17f, 1.00f);
+        colors[ImGuiCol_TabHovered]             = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.80f);
+        colors[ImGuiCol_TabActive]              = customAccent;
+        colors[ImGuiCol_TabUnfocused]           = ImVec4(0.15f, 0.15f, 0.17f, 1.00f);
+        colors[ImGuiCol_TabUnfocusedActive]     = customAccent;
+
+        colors[ImGuiCol_Text]                   = ImVec4(0.95f, 0.95f, 0.97f, 1.00f); 
+        colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.55f, 1.00f); 
         
         if (!isKeyAuthLogged) 
         {
-            CGFloat loginWidth = 360;  
-            CGFloat loginHeight = 280; 
+            CGFloat loginWidth = 350;  
+            CGFloat loginHeight = 250; 
             CGFloat lx = (view.bounds.size.width - loginWidth) / 2;
             CGFloat ly = (view.bounds.size.height - loginHeight) / 2;
             
@@ -620,94 +583,67 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::SetNextWindowSize(ImVec2(loginWidth, loginHeight), ImGuiCond_Always);
             
             ImGuiWindowFlags login_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove;
-            
-            ImGui::Begin("LOGIN_SYSTEM", NULL, login_flags);
+            ImGui::Begin("LOGIN", NULL, login_flags);
             
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
             
-            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(15, 18, 25, 255), 12.0f, ImDrawFlags_RoundCornersAll);
-            drawList->AddLine(ImVec2(pos.x, pos.y + 65), ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(customAccent.x, customAccent.y, customAccent.z, 0.8f), 2.0f);
+            // Clean Top Header bar
+            drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 55), ImColor(18, 18, 22, 255), 8.0f, ImDrawFlags_RoundCornersTop);
+            drawList->AddLine(ImVec2(pos.x, pos.y + 55), ImVec2(pos.x + loginWidth, pos.y + 55), ImColor(customAccent.x, customAccent.y, customAccent.z, 1.0f), 2.0f);
             
-            ImGui::SetCursorPos(ImVec2(20, 18));
-            ImVec2 textPos = ImGui::GetCursorScreenPos();
+            DrawCleanShadowText(drawList, ImVec2(pos.x + 20, pos.y + 15), "EXLITER PRO", customAccent, 24.0f, fontTitle);
             
-            ImGui::PushFont(fontTitle); 
-            Draw3DAnimatedText(drawList, textPos, "STATISTICS KING", customAccent, false);
-            ImGui::PopFont();
-            
-            ImGui::Dummy(ImVec2(0, 30)); 
-            
-            ImGui::SetCursorPos(ImVec2(20, 48));
-            ImGui::TextDisabled("PREMIUM ACCESS");
-            
-            ImGui::SetCursorPosY(85);
+            ImGui::Dummy(ImVec2(0, 45)); 
             
             ImGui::TextDisabled("Username:");
             ImGui::SetNextItemWidth(260); 
             ImGui::InputText("##UserField", usernameInput, IM_ARRAYSIZE(usernameInput));
             ImGui::SameLine();
-            if (ImGui::Button("Clear##1", ImVec2(55, 0))) {
-                memset(usernameInput, 0, sizeof(usernameInput));
-            }
-            
-            ImGui::Spacing();
+            if (ImGui::Button("C##1", ImVec2(35, 0))) { memset(usernameInput, 0, sizeof(usernameInput)); }
             
             ImGui::TextDisabled("Password:");
             ImGui::SetNextItemWidth(260); 
             ImGui::InputText("##PassField", passwordInput, IM_ARRAYSIZE(passwordInput), ImGuiInputTextFlags_Password);
             ImGui::SameLine();
-            if (ImGui::Button("Clear##2", ImVec2(55, 0))) {
-                memset(passwordInput, 0, sizeof(passwordInput));
-            }
+            if (ImGui::Button("C##2", ImVec2(35, 0))) { memset(passwordInput, 0, sizeof(passwordInput)); }
             
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
+            ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
             
             if (isAuthenticating) {
-                ImGui::Button("Authenticating Please Wait...", ImVec2(-1, 42));
+                ImGui::Button("Authenticating Please Wait...", ImVec2(-1, 35));
             } else {
-                if (ImGui::Button("Login to System", ImVec2(-1, 42))) {
+                if (ImGui::Button("Login to Menu", ImVec2(-1, 35))) {
                     NSString *uStr = [NSString stringWithUTF8String:usernameInput];
                     NSString *pStr = [NSString stringWithUTF8String:passwordInput];
-                    
                     if (uStr.length > 0 && pStr.length > 0) {
                         isAuthenticating = true;
                         loginErrorMessage = "";
                         [hiddenTextField resignFirstResponder];
-                        
                         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                             BOOL success = [self performUserPassLogin:uStr pwd:pStr];
                             dispatch_async(dispatch_get_main_queue(), ^{
                                 isAuthenticating = false;
-                                if (success) {
-                                    isKeyAuthLogged = true;
-                                }
+                                if (success) { isKeyAuthLogged = true; }
                             });
                         });
                     } else {
-                        loginErrorMessage = "Username and Password cannot be empty.";
+                        loginErrorMessage = "Credentials cannot be empty.";
                     }
                 }
             }
-            
             if (!loginErrorMessage.empty()) {
-                ImGui::Spacing();
-                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "[Error] %s", loginErrorMessage.c_str());
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", loginErrorMessage.c_str());
             }
-            
             ImGui::End();
         } 
         
         else if (MenDeal == true) 
         {
-            if ([hiddenTextField isFirstResponder]) {
-                [hiddenTextField resignFirstResponder];
-            }
+            if ([hiddenTextField isFirstResponder]) { [hiddenTextField resignFirstResponder]; }
 
-            CGFloat menuWidth = 540;  
-            CGFloat menuHeight = 350; 
+            CGFloat menuWidth = 480;  
+            CGFloat menuHeight = 360; 
             CGFloat mx = (view.bounds.size.width - menuWidth) / 2;
             CGFloat my = (view.bounds.size.height - menuHeight) / 2;
             
@@ -715,211 +651,137 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::SetNextWindowSize(ImVec2(menuWidth, menuHeight), ImGuiCond_FirstUseEver); 
             
             ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
-            ImGui::Begin("STATISTICS_MAIN_CONTAINER", &MenDeal, window_flags);
+            ImGui::Begin("MAIN_MENU", &MenDeal, window_flags);
             
-            ImDrawList* internalDrawList = ImGui::GetWindowDrawList();
-            ImVec2 windowPos = ImGui::GetWindowPos();
-            ImVec2 windowSize = ImGui::GetWindowSize();
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            ImVec2 pos = ImGui::GetWindowPos();
             
-            std::string watermarkText = "STATISTICS KING";
-            ImGui::PushFont(fontTitle); 
-            ImVec2 textSize = ImGui::CalcTextSize(watermarkText.c_str());
+            // Clean Modern Header
+            drawList->AddRectFilled(pos, ImVec2(pos.x + menuWidth, pos.y + 50), ImColor(18, 18, 22, 255), 8.0f, ImDrawFlags_RoundCornersTop);
+            drawList->AddLine(ImVec2(pos.x, pos.y + 50), ImVec2(pos.x + menuWidth, pos.y + 50), ImColor(customAccent.x, customAccent.y, customAccent.z, 1.0f), 2.0f);
             
-            ImVec2 wmPos = ImVec2(
-                windowPos.x + 140.0f + ((windowSize.x - 140.0f) - textSize.x) * 0.5f,
-                windowPos.y + (windowSize.y - textSize.y) * 0.5f
-            );
-            Draw3DAnimatedText(internalDrawList, wmPos, watermarkText.c_str(), customAccent, true);
-            ImGui::PopFont(); 
+            DrawCleanShadowText(drawList, ImVec2(pos.x + 15, pos.y + 12), "EXLITER PRO", customAccent, 24.0f, fontTitle);
+            
+            ImGui::SetCursorPos(ImVec2(menuWidth - 40, 12));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+            if (ImGui::Button("X", ImVec2(25, 25))) { MenDeal = false; }
+            ImGui::PopStyleColor();
 
-            ImGui::Columns(2, "MainLayout", false);
-            ImGui::SetColumnWidth(0, 140.0f); 
-            
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.05f, 0.06f, 0.09f, 0.90f)); 
-            ImGui::BeginChild("Sidebar", ImVec2(0, 0), true);
-            
+            ImGui::SetCursorPosY(55);
             ImGui::Spacing();
             
-            ImGui::SetCursorPosX(10);
-            ImVec2 sidebarTextPos = ImGui::GetCursorScreenPos();
-            Draw3DAnimatedText(internalDrawList, sidebarTextPos, "STATISTICS KING", customAccent, false);
-            ImGui::Dummy(ImVec2(0, 20)); 
-
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            static int activeTab = 0; 
-            const char* tabs[] = { " Aimbot", " Visuals", " Misc", " Settings" };
-            
-            for (int i = 0; i < 4; i++) {
-                bool is_selected = (activeTab == i);
-                if (is_selected) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.20f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.30f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.50f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, customAccent);
-                } else {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.03f));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.06f));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.70f, 0.73f, 0.80f, 1.00f));
-                }
-
-                ImGui::SetCursorPosX(8);
-                if (ImGui::Button(tabs[i], ImVec2(120, 38))) {
-                    activeTab = i;
-                }
-                ImGui::PopStyleColor(4);
-                ImGui::Spacing();
-            }
-            ImGui::EndChild();
-            ImGui::PopStyleColor(); 
-
-            ImGui::NextColumn();
-            
-            ImGui::BeginChild("ContentArea", ImVec2(0, 0), false);
-            
-            ImGui::Spacing();
-            if (activeTab == 0) {
-                ImGui::TextColored(customAccent, "AIMBOT CONFIGURATION");
-            } else if (activeTab == 1) {
-                ImGui::TextColored(customAccent, "VISUALS & ESP");
-            } else if (activeTab == 2) {
-                ImGui::TextColored(customAccent, "MISC MODIFICATIONS");
-            } else {
-                ImGui::TextColored(customAccent, "SYSTEM SETTINGS");
-            }
-            
-            ImGui::SameLine(ImGui::GetWindowWidth() - 35);
-            if (ImGui::Button("X", ImVec2(24, 24))) {
-                MenDeal = false;
-            }
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            if (activeTab == 0) { 
-                ImGui::Checkbox("Master Switch", &masterAimbot);
+            // TAB SYSTEM (Replaced Columns)
+            if (ImGui::BeginTabBar("MenuTabs")) {
                 
-                ImGui::Text("Aimbot config");
-                const char* aimConfigs[] = { "Global", "Legit", "Rage" };
-                ImGui::SetNextItemWidth(-1);
-                ImGui::Combo("##AimConfig", &selectedAimConfig, aimConfigs, IM_ARRAYSIZE(aimConfigs));
-                
-                ImGui::Checkbox("Enabled", &aimbotEnable);
-                
-                ImGui::Text("Aiming method");
-                const char* aimMethods[] = { "Silent aimbot", "Vector aim" };
-                ImGui::SetNextItemWidth(-1);
-                ImGui::Combo("##AimMethod", &selectedAimMethod, aimMethods, IM_ARRAYSIZE(aimMethods));
-                
-                ImGui::Checkbox("Show FOV circle", &showFovCircle);
-                ImGui::SameLine(); 
-                ImGui::ColorEdit4("##FovCircleColorPicker", fovCircleColor, 
-                                  ImGuiColorEditFlags_NoInputs | 
-                                  ImGuiColorEditFlags_AlphaBar | 
-                                  ImGuiColorEditFlags_PickerHueWheel);
-
-                ImGui::Checkbox("Ignore Knocked", &ignoreKnocked);
-                ImGui::Checkbox("Force lock", &forceLock);
-                
-                ImGui::Spacing();
-                ImGui::Text("Hitbox Target");
-                const char* hitboxes[] = { "Head", "Neck", "Body", "Randomized" };
-                ImGui::SetNextItemWidth(-1);
-                ImGui::Combo("##Hitbox", &selectedHitbox, hitboxes, IM_ARRAYSIZE(hitboxes));
-                
-                ImGui::Spacing();
-                ImGui::Text("FOV"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1f°", fovRadius);
-                ImGui::SetNextItemWidth(-1);
-                ImGui::SliderFloat("##FOV_Slider", &fovRadius, 1.0f, 360.0f, "");
-                
-                ImGui::Spacing();
-                ImGui::Text("Max distance"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1fm", maxDistance);
-                ImGui::SetNextItemWidth(-1);
-                ImGui::SliderFloat("##Dist_Slider", &maxDistance, 10.0f, 500.0f, "");
-                
-                ImGui::Spacing();
-                if (selectedAimMethod == 0) {
-                    ImGui::Text("Hit chance"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.0f%%", hitChance);
+                if (ImGui::BeginTabItem("Aimbot")) {
+                    ImGui::Spacing();
+                    ImGui::Checkbox("Master Switch", &masterAimbot);
+                    ImGui::Separator();
+                    
+                    ImGui::Text("Configuration");
+                    const char* aimConfigs[] = { "Global", "Legit", "Rage" };
                     ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##Hit_Slider", &hitChance, 1.0f, 100.0f, "");
-                } else if (selectedAimMethod == 1) {
-                    ImGui::Text("Lock speed"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1f", lockSpeed);
+                    ImGui::Combo("##AimConfig", &selectedAimConfig, aimConfigs, IM_ARRAYSIZE(aimConfigs));
+                    
+                    ImGui::Checkbox("Enabled", &aimbotEnable);
+                    
+                    const char* aimMethods[] = { "Silent aimbot", "Vector aim" };
                     ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##Lock_Slider", &lockSpeed, 1.0f, 20.0f, "");
-                }
-            } 
-            
-            else if (activeTab == 1) { 
-                ImGui::Checkbox("Enemy ESP", &enemyEsp);
-                ImGui::Checkbox("Line", &espLine);
-                ImGui::Checkbox("Box", &espBox);
-                ImGui::Checkbox("Health", &espHealth);
-                ImGui::Checkbox("Nickname", &espNickname);
-                ImGui::Checkbox("Distance", &espDistance);
-                ImGui::Checkbox("Skeleton", &espSkeleton);
-                ImGui::Checkbox("Nearby enemies count", &nearbyCount);
-                
-                ImGui::Spacing();
-                ImGui::Text("Counter text size:"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%.1fpx", counterTextSize);
-                ImGui::SetNextItemWidth(-1);
-                ImGui::SliderFloat("##CounterSize", &counterTextSize, 10.0f, 50.0f, "");
-            } 
-            
-            else if (activeTab == 2) { 
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.2f, 0.2f, 1.0f));
-                ImGui::TextWrapped("Some options in this section may not be entirely safe. Use with caution.");
-                ImGui::PopStyleColor();
-                ImGui::Spacing();
-                
-                ImGui::Checkbox("No Recoil", &noRecoil);
-                ImGui::Checkbox("Fast Swap Weapon", &fastSwap);
-                ImGui::Checkbox("Fast Reload", &fastReload);
-                ImGui::Checkbox("Teleport enemies to you", &teleportEnemies);
-            } 
-            
-            else if (activeTab == 3) { 
-                ImGui::TextColored(customAccent, "SYSTEM & THEME SETTINGS");
-                ImGui::Separator();
-                ImGui::Spacing();
-                
-                ImGui::Text("Logged User: %s", usernameInput);
-                ImGui::Text("API Server: CONNECTED");
-                ImGui::Text("Subscription: %s", subDaysRemaining.c_str());
-                
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
+                    ImGui::Combo("##AimMethod", &selectedAimMethod, aimMethods, IM_ARRAYSIZE(aimMethods));
+                    
+                    ImGui::Checkbox("Show FOV circle", &showFovCircle);
+                    ImGui::SameLine(ImGui::GetWindowWidth() - 40); 
+                    ImGui::ColorEdit4("##FovCircleColorPicker", fovCircleColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_PickerHueWheel);
 
-                ImGui::Text("Security:");
-                ImGui::Checkbox("Stream Proof (Hide Screen Recording)", &streamProof);
-                ImGui::Spacing();
-                
-                ImGui::Text("Menu Accent Color:");
-                ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, 
-                                  ImGuiColorEditFlags_PickerHueWheel | 
-                                  ImGuiColorEditFlags_AlphaBar | 
-                                  ImGuiColorEditFlags_NoInputs | 
-                                  ImGuiColorEditFlags_NoLabel);
-                
-                ImGui::Spacing();
-                ImGui::Text("Menu Transparency:");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::SliderFloat("##Transparency", &menuTransparency, 0.3f, 1.0f, "%.2f");
-                
-                ImGui::Spacing();
-                if (ImGui::Button("Logout Account", ImVec2(-1, 38))) {
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
-                    [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_PASS"];
-                    [[NSUserDefaults standardUserDefaults] synchronize];
-                    isKeyAuthLogged = false;
-                    memset(usernameInput, 0, sizeof(usernameInput));
-                    memset(passwordInput, 0, sizeof(passwordInput));
+                    ImGui::Checkbox("Ignore Knocked", &ignoreKnocked);
+                    ImGui::Checkbox("Force lock", &forceLock);
+                    
+                    const char* hitboxes[] = { "Head", "Neck", "Body", "Randomized" };
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::Combo("##Hitbox", &selectedHitbox, hitboxes, IM_ARRAYSIZE(hitboxes));
+                    
+                    ImGui::Text("FOV"); ImGui::SameLine(ImGui::GetWindowWidth() - 60); ImGui::TextColored(customAccent, "%.1f°", fovRadius);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##FOV_Slider", &fovRadius, 1.0f, 360.0f, "");
+                    
+                    ImGui::Text("Max distance"); ImGui::SameLine(ImGui::GetWindowWidth() - 70); ImGui::TextColored(customAccent, "%.1fm", maxDistance);
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##Dist_Slider", &maxDistance, 10.0f, 500.0f, "");
+                    
+                    if (selectedAimMethod == 0) {
+                        ImGui::Text("Hit chance"); ImGui::SameLine(ImGui::GetWindowWidth() - 60); ImGui::TextColored(customAccent, "%.0f%%", hitChance);
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##Hit_Slider", &hitChance, 1.0f, 100.0f, "");
+                    } else {
+                        ImGui::Text("Lock speed"); ImGui::SameLine(ImGui::GetWindowWidth() - 50); ImGui::TextColored(customAccent, "%.1f", lockSpeed);
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##Lock_Slider", &lockSpeed, 1.0f, 20.0f, "");
+                    }
+                    ImGui::EndTabItem();
                 }
+                
+                if (ImGui::BeginTabItem("Visuals")) {
+                    ImGui::Spacing();
+                    ImGui::Checkbox("Enemy ESP", &enemyEsp);
+                    ImGui::Checkbox("Lines", &espLine);
+                    ImGui::Checkbox("Boxes", &espBox);
+                    ImGui::Checkbox("Health Bar", &espHealth);
+                    ImGui::Checkbox("Nickname", &espNickname);
+                    ImGui::Checkbox("Distance", &espDistance);
+                    ImGui::Checkbox("Skeletons", &espSkeleton);
+                    ImGui::Checkbox("Nearby Counter", &nearbyCount);
+                    
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                    ImGui::Text("Counter Text Size:");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##CounterSize", &counterTextSize, 10.0f, 50.0f, "%.1fpx");
+                    ImGui::EndTabItem();
+                }
+                
+                if (ImGui::BeginTabItem("Misc")) {
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Warning: Some options may increase ban risk.");
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                    
+                    ImGui::Checkbox("No Recoil", &noRecoil);
+                    ImGui::Checkbox("Fast Swap Weapon", &fastSwap);
+                    ImGui::Checkbox("Fast Reload", &fastReload);
+                    ImGui::Checkbox("Teleport Enemies", &teleportEnemies);
+                    ImGui::EndTabItem();
+                }
+                
+                if (ImGui::BeginTabItem("Settings")) {
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("User:"); ImGui::SameLine(); ImGui::Text("%s", usernameInput);
+                    ImGui::TextDisabled("Expiry:"); ImGui::SameLine(); ImGui::TextColored(customAccent, "%s", subDaysRemaining.c_str());
+                    
+                    ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
+                    
+                    // Fixed Stream Proof Toggle
+                    ImGui::Checkbox("Stream Proof (Hide Screen Recording)", &streamProof);
+                    
+                    ImGui::Spacing();
+                    ImGui::Text("Menu Accent Color");
+                    ImGui::SameLine(ImGui::GetWindowWidth() - 40);
+                    ImGui::ColorEdit4("##ThemeAccentPicker", menuAccentColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_PickerHueWheel);
+                    
+                    ImGui::Text("Menu Transparency");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##Transparency", &menuTransparency, 0.3f, 1.0f, "%.2f");
+                    
+                    ImGui::Spacing();
+                    if (ImGui::Button("Logout Account", ImVec2(-1, 35))) {
+                        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_USER"];
+                        [[NSUserDefaults standardUserDefaults] removeObjectForKey:@"STATISTICS_PASS"];
+                        [[NSUserDefaults standardUserDefaults] synchronize];
+                        isKeyAuthLogged = false;
+                        memset(usernameInput, 0, sizeof(usernameInput));
+                        memset(passwordInput, 0, sizeof(passwordInput));
+                    }
+                    ImGui::EndTabItem();
+                }
+                ImGui::EndTabBar();
             }
-            
-            ImGui::EndChild();
-            ImGui::Columns(1); 
             ImGui::End();   
         }
         
@@ -927,9 +789,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         
         if (isKeyAuthLogged && aimbotEnable && showFovCircle) {
             ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
-            draw_list->AddCircle(center, fovRadius * 3.0f, 
-                                 ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 
-                                 100, 1.2f);
+            draw_list->AddCircle(center, fovRadius * 3.0f, ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 100, 1.2f);
         }
 
         ImGui::Render();
@@ -941,7 +801,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 
         [commandBuffer presentDrawable:view.currentDrawable];
     }
-
     [commandBuffer commit];
 }
 
