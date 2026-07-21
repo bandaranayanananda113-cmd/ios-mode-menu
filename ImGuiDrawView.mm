@@ -162,7 +162,7 @@ static bool noRecoil = false;
 static bool fastSwap = false;
 static bool fastReload = false;
 
-// Theme Colors (Default: Website එකේ වගේ Neon Purple / Cyan Theme එක)
+// Theme Colors (Default: Neon Purple / Cyan Theme)
 static float menuAccentColor[4] = {0.45f, 0.20f, 1.00f, 1.00f}; // Purple Accent
 static float menuTransparency = 0.95f;
 
@@ -312,7 +312,14 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
     self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
     _device = MTLCreateSystemDefaultDevice();
     _commandQueue = [_device newCommandQueue];
+    
     ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    
+    // FIX: Default Font එක එකතු කර fontTitle එක Null නොවෙන ලෙස සකස් කළා
+    fontMain = io.Fonts->AddFontDefault();
+    fontTitle = fontMain;
+    
     ImGui_ImplMetal_Init(_device);
     return self;
 }
@@ -373,8 +380,8 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
         
         ImVec4 accentColor = ImVec4(menuAccentColor[0], menuAccentColor[1], menuAccentColor[2], 1.0f);
         
-        style->Colors[ImGuiCol_WindowBg]           = ImVec4(0.06f, 0.06f, 0.10f, menuTransparency); // Dark Navy/Purple Background
-        style->Colors[ImGuiCol_Border]             = accentColor; // Dynamic Neon Border
+        style->Colors[ImGuiCol_WindowBg]           = ImVec4(0.06f, 0.06f, 0.10f, menuTransparency);
+        style->Colors[ImGuiCol_Border]             = accentColor;
         style->Colors[ImGuiCol_FrameBg]            = ImVec4(0.10f, 0.10f, 0.16f, 1.0f);
         style->Colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.16f, 0.16f, 0.24f, 1.0f);
         style->Colors[ImGuiCol_FrameBgActive]      = accentColor;
@@ -394,11 +401,17 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
             ImGui::Begin("Login", NULL, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
             
             ImGui::SetCursorPosY(20);
-            ImGui::PushFont(fontTitle); 
+            
+            // FIX: Font එක Null ද නැද්ද කියා තහවුරු කර ගැනීම
+            if (fontTitle != nullptr) {
+                ImGui::PushFont(fontTitle); 
+            }
             ImVec2 textWidth = ImGui::CalcTextSize("KEY DASHBOARD");
             ImGui::SetCursorPosX((380 - textWidth.x) / 2); 
             ImGui::TextColored(accentColor, "KEY DASHBOARD");
-            ImGui::PopFont();
+            if (fontTitle != nullptr) {
+                ImGui::PopFont();
+            }
             
             ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
             
@@ -418,7 +431,10 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
                 if (ImGui::Button("SIGN IN ->", ImVec2(-1, 40))) {
                     isAuthenticating = true;
                     dispatch_async(dispatch_get_global_queue(0,0), ^{
-                        BOOL ok = [self performUserPassLogin:[NSString stringWithUTF8String:usernameInput] pwd:[NSString stringWithUTF8String:passwordInput]];
+                        // FIX: Empty string නිසා වෙන Crash වැළැක්වීම
+                        NSString *usrStr = usernameInput[0] != '\0' ? [NSString stringWithUTF8String:usernameInput] : @"";
+                        NSString *pwdStr = passwordInput[0] != '\0' ? [NSString stringWithUTF8String:passwordInput] : @"";
+                        BOOL ok = [self performUserPassLogin:usrStr pwd:pwdStr];
                         dispatch_async(dispatch_get_main_queue(), ^{
                             isAuthenticating = false;
                             isKeyAuthLogged = ok;
@@ -431,7 +447,6 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
             }
             
             ImGui::Spacing();
-            // Footer Text მსგავსව
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.6f, 1.0f));
             ImGui::Text("Developed by @chamikadinith | Dashboard 2026");
             ImGui::PopStyleColor();
@@ -529,7 +544,7 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
                     ImGui::EndTabItem();
                 }
                 
-                // 4. SETTINGS TAB (මෙතනින් Color Picker එක දමා ඇත - එකෙන් මෙනුවේ පාට වෙනස් වේ)
+                // 4. SETTINGS TAB
                 if (ImGui::BeginTabItem(" Settings ")) {
                     ImGui::Spacing();
                     
@@ -539,7 +554,6 @@ void RenderESP(ImDrawList* drawList, ImVec2 displaySize) {
                     
                     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
                     
-                    // Menu Accent Color Picker එක
                     ImGui::Text("Menu Accent Color");
                     ImGui::ColorEdit4("##accColor", menuAccentColor);
                     
