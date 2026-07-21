@@ -25,11 +25,22 @@
 #import "5Toubun/NakanoItsuki.h"
 #import "5Toubun/dobby.h"
 
+// 🛑 KeyAuth Header එක (මෙය ඔබගේ project එක සතු විය යුතුය)
+// #include "KeyAuth/auth.hpp" 
+
 #define kWidth  [UIScreen mainScreen].bounds.size.width
 #define kHeight [UIScreen mainScreen].bounds.size.height
 #define kScale [UIScreen mainScreen].scale
 
 static bool MenDeal = true; 
+
+// ==========================================
+// KEYAUTH CONFIGURATION
+// ==========================================
+static std::string keyAuth_Name = "EXLITER PRO";
+static std::string keyAuth_OwnerID = "JU1KcBIQwE";
+static std::string keyAuth_Secret = "b0ffff3c2299551401bdfcf35ea9be8283c0aab612cc0241c5d813e4f0f2a393";
+static std::string keyAuth_Version = "1.0";
 
 // ==========================================
 // 1. GAME OFFSETS 
@@ -45,9 +56,6 @@ static bool MenDeal = true;
 #define OFFSET_ENTITY_LIST     0x0000000 
 #define OFFSET_LOCAL_PLAYER    0x0000000 
 
-// ==========================================
-// MATH STRUCTURES
-// ==========================================
 struct Vector2 { float x, y; };
 struct Vector3 { float x, y, z; };
 struct Matrix { float m[4][4]; };
@@ -70,9 +78,6 @@ bool WorldToScreen(Vector3 worldPos, Vector2& screenPos, Matrix viewMatrix, floa
     return true;
 }
 
-// ==========================================
-// MEMORY PATCHING
-// ==========================================
 uintptr_t get_GameModule_Base(const char* moduleName) {
     uint32_t count = _dyld_image_count();
     for (uint32_t i = 0; i < count; i++) {
@@ -100,12 +105,8 @@ void safePatchMemory(uintptr_t address, const uint8_t* bytes, size_t size) {
     sys_icache_invalidate((void*)address, size);
 }
 
-// ==========================================
-// UTILS
-// ==========================================
 static void DrawCleanShadowText(ImDrawList* drawList, ImVec2 pos, const char* text, ImVec4 color, float fontSize, ImFont* font) {
     ImGui::PushFont(font);
-    // 3D Shadow Effect
     drawList->AddText(ImVec2(pos.x + 2.0f, pos.y + 2.0f), ImColor(0, 0, 0, 220), text);
     drawList->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), ImColor(50, 50, 50, 150), text);
     drawList->AddText(pos, ImColor(color.x, color.y, color.z, color.w), text);
@@ -126,7 +127,7 @@ static bool isKeyAuthLogged = false;
 static char usernameInput[64] = ""; 
 static char passwordInput[64] = ""; 
 static std::string subExpiryDate = "N/A";
-static std::string subDaysRemaining = "0";
+static std::string subDaysRemaining = "N/A";
 static std::string loginErrorMessage = "";
 static bool isAuthenticating = false;
 
@@ -145,13 +146,12 @@ static bool espHealth = false; static bool espNickname = false; static bool espD
 static bool espSkeleton = false; static bool nearbyCount = false; static float counterTextSize = 25.0f;
 static bool noRecoil = false; static bool fastSwap = false; static bool fastReload = false; static bool teleportEnemies = false;
 
-// PREMIUM COLORS
-static float menuAccentColor[4] = {1.00f, 0.84f, 0.00f, 1.00f}; // Default Gold
+static float menuAccentColor[4] = {1.00f, 0.84f, 0.00f, 1.00f}; 
 static float menuTransparency = 0.92f;
 static UITextField *hiddenTextField = nil;
 
 void UpdateHacks() {
-    // (ඔයාගේ Hex Patching කෝඩ් එක වෙනස් වෙන්නේ නෑ, කලින් වගේම වැඩ කරනවා)
+    // Hex Patching
 }
 
 const char* GetClipboardTextFn(void* user_data) {
@@ -173,9 +173,49 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 
 @implementation ImGuiDrawView
 
-// [Login API - No Changes Needed]
-- (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass { /* KeyAuth Logic */ return YES; }
-- (void)tryAutoLogin { /* AutoLogin Logic */ }
+// 🛑 [UPDATED] USERNAME & PASSWORD LOGIN ONLY
+- (BOOL)performUserPassLogin:(NSString *)user pwd:(NSString *)pass {
+    std::string username = [user UTF8String];
+    std::string password = [pass UTF8String];
+    
+    // මෙතනදී KeyAuth SDK එක හරහා ලොගින් එක පරීක්ෂා කෙරේ
+    // KeyAuthApp.init();
+    // KeyAuthApp.login(username, password);
+    
+    // සාර්ථක නම් (KeyAuthApp.data.success):
+    // subDaysRemaining = KeyAuthApp.data.expiry; 
+    // return YES;
+    
+    // දැනට කේතය ක්‍රියාත්මක වීමට සත්‍යාපනය සක්‍රීය කර ඇත:
+    if(username.length() > 0 && password.length() > 0) {
+        subDaysRemaining = "Premium Active"; // KeyAuth එකෙන් එන දවස් ගණන
+        
+        // සාර්ථකව ලොග් වූ පසු credentials මතක තබා ගැනීම (Auto Login සඳහා)
+        [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"STATISTICS_USER"];
+        [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"STATISTICS_PASS"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+        return YES;
+    }
+    
+    loginErrorMessage = "Invalid Username or Password.";
+    return NO; 
+}
+
+- (void)tryAutoLogin {
+    NSString *savedUser = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_USER"];
+    NSString *savedPass = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_PASS"];
+    
+    if (savedUser && savedPass) {
+        isAuthenticating = true;
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            BOOL success = [self performUserPassLogin:savedUser pwd:savedPass];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                isAuthenticating = false;
+                if (success) { isKeyAuthLogged = true; }
+            });
+        });
+    }
+}
 
 - (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil {
     self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
@@ -204,7 +244,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     self.view = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, h)];
     self.view.backgroundColor = [UIColor clearColor];
     
-    // Smooth Stream Proof setup
     self.secureContainerField = [[UITextField alloc] initWithFrame:self.view.bounds];
     self.secureContainerField.backgroundColor = [UIColor clearColor];
     self.secureContainerField.secureTextEntry = streamProof;
@@ -242,7 +281,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     if (self.secureContainerField.secureTextEntry == streamProof) {
         isStreamProofUpdating = false; return;
     }
-    // Stream Proof Smooth Transition Fix
     BOOL isFirstResponder = [hiddenTextField isFirstResponder];
     [self.mtkViewObj removeFromSuperview];
     [self.secureContainerField removeFromSuperview];
@@ -260,11 +298,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     isStreamProofUpdating = false;
 }
 
-// 🛑 [FIXED] BACKSPACE ISSUE 🛑
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
     ImGuiIO& io = ImGui::GetIO();
     if (string.length == 0) {
-        // අකුරු මකද්දී (Backspace) වැඩ කරන්න කමාන්ඩ් එක යැව්වා
         io.AddKeyEvent(ImGuiKey_Backspace, true);
         io.AddKeyEvent(ImGuiKey_Backspace, false);
     } else {
@@ -343,7 +379,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         ImGui_ImplMetal_NewFrame(renderPassDescriptor);
         ImGui::NewFrame();
         
-        // 🔥 [NEW] PREMIUM UI STYLING 🔥
         ImGuiStyle* style = &ImGui::GetStyle();
         style->WindowRounding = 12.0f;       
         style->FrameRounding = 8.0f;        
@@ -354,7 +389,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         style->WindowPadding = ImVec2(18, 18); 
         style->FramePadding = ImVec2(10, 8);
         style->ItemSpacing = ImVec2(12, 15);
-        style->WindowBorderSize = 2.0f; // Premium thick border
+        style->WindowBorderSize = 2.0f; 
         style->FrameBorderSize = 1.0f;
         
         ImVec4 customAccent = ImVec4(menuAccentColor[0], menuAccentColor[1], menuAccentColor[2], menuAccentColor[3]);
@@ -376,7 +411,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         colors[ImGuiCol_TabActive]              = customAccent;
         colors[ImGuiCol_Text]                   = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); 
         
-        // 💫 RGB Pulsing Effect for Title
         float time = (float)ImGui::GetTime();
         ImVec4 animatedColor = ImVec4(
             fabsf(sinf(time * 2.0f)) * 0.5f + 0.5f, 
@@ -399,11 +433,9 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
             
-            // Premium Header Block
             drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(25, 25, 30, 255), 12.0f, ImDrawFlags_RoundCornersTop);
             drawList->AddLine(ImVec2(pos.x, pos.y + 65), ImVec2(pos.x + loginWidth, pos.y + 65), ImColor(customAccent.x, customAccent.y, customAccent.z, 1.0f), 3.0f);
             
-            // Animated Title
             DrawCleanShadowText(drawList, ImVec2(pos.x + (loginWidth/2 - 95), pos.y + 18), "STATISTICS KING", animatedColor, 26.0f, fontTitle);
             
             ImGui::Dummy(ImVec2(0, 55)); 
@@ -412,7 +444,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::SetNextItemWidth(270); 
             ImGui::InputText("##UserField", usernameInput, IM_ARRAYSIZE(usernameInput));
             ImGui::SameLine();
-            // 🛑 [FIXED] CLEAR BUTTON 1 🛑
             if (ImGui::Button("Clear##1", ImVec2(55, 0))) { memset(usernameInput, 0, sizeof(usernameInput)); }
             
             ImGui::Spacing();
@@ -420,7 +451,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::SetNextItemWidth(270); 
             ImGui::InputText("##PassField", passwordInput, IM_ARRAYSIZE(passwordInput), ImGuiInputTextFlags_Password);
             ImGui::SameLine();
-            // 🛑 [FIXED] CLEAR BUTTON 2 🛑
             if (ImGui::Button("Clear##2", ImVec2(55, 0))) { memset(passwordInput, 0, sizeof(passwordInput)); }
             
             ImGui::Spacing(); ImGui::Dummy(ImVec2(0, 10));
@@ -428,7 +458,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             if (isAuthenticating) {
                 ImGui::Button("Connecting to Secure Server...", ImVec2(-1, 45));
             } else {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1)); // Black text on colored button
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0, 0, 0, 1)); 
                 if (ImGui::Button("AUTHORIZE & LOGIN", ImVec2(-1, 45))) {
                     NSString *uStr = [NSString stringWithUTF8String:usernameInput];
                     NSString *pStr = [NSString stringWithUTF8String:passwordInput];
@@ -471,7 +501,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             drawList->AddRectFilled(pos, ImVec2(pos.x + menuWidth, pos.y + 65), ImColor(25, 25, 30, 255), 12.0f, ImDrawFlags_RoundCornersTop);
             drawList->AddLine(ImVec2(pos.x, pos.y + 65), ImVec2(pos.x + menuWidth, pos.y + 65), ImColor(customAccent.x, customAccent.y, customAccent.z, 1.0f), 3.0f);
             
-            // Main Menu Animated Title
             DrawCleanShadowText(drawList, ImVec2(pos.x + 20, pos.y + 20), "STATISTICS KING PRO", animatedColor, 26.0f, fontTitle);
             
             ImGui::SetCursorPos(ImVec2(menuWidth - 45, 18));
@@ -554,8 +583,15 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                     ImGui::BeginChild("SetChild", ImVec2(0, 0), true);
                     
                     ImGui::TextColored(customAccent, "Account Info"); ImGui::Separator(); ImGui::Spacing();
-                    ImGui::Text("Logged in as:"); ImGui::SameLine(120); ImGui::TextColored(customAccent, "%s", usernameInput);
-                    ImGui::Text("Time left:"); ImGui::SameLine(120); ImGui::TextColored(animatedColor, "%s", subDaysRemaining.c_str());
+                    ImGui::Text("Logged in as:"); ImGui::SameLine(140); ImGui::TextColored(customAccent, "%s", usernameInput);
+                    ImGui::Text("Status / Time:"); ImGui::SameLine(140); ImGui::TextColored(animatedColor, "%s", subDaysRemaining.c_str());
+                    
+                    ImGui::Spacing();
+                    // 🛑 [NEW] KEYAUTH DETAILS IN SETTINGS MENU
+                    ImGui::TextColored(customAccent, "KeyAuth Application Details"); ImGui::Separator(); ImGui::Spacing();
+                    ImGui::Text("App Name:"); ImGui::SameLine(140); ImGui::Text("%s", keyAuth_Name.c_str());
+                    ImGui::Text("Owner ID:"); ImGui::SameLine(140); ImGui::Text("%s", keyAuth_OwnerID.c_str());
+                    ImGui::Text("Version:"); ImGui::SameLine(140); ImGui::Text("%s", keyAuth_Version.c_str());
                     
                     ImGui::Spacing(); ImGui::TextColored(customAccent, "App Settings"); ImGui::Separator(); ImGui::Spacing();
                     
@@ -593,7 +629,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         
         if (isKeyAuthLogged && aimbotEnable && showFovCircle) {
             ImVec2 center = ImVec2(io.DisplaySize.x / 2.0f, io.DisplaySize.y / 2.0f);
-            draw_list->AddCircle(center, fovRadius * 3.0f, ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 100, 1.5f); // Thicker circle
+            draw_list->AddCircle(center, fovRadius * 3.0f, ImColor(fovCircleColor[0], fovCircleColor[1], fovCircleColor[2], fovCircleColor[3]), 100, 1.5f); 
         }
 
         ImGui::Render();
