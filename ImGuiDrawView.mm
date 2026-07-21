@@ -34,15 +34,27 @@ static bool MenDeal = true;
 // ==========================================
 // 1. GAME OFFSETS PLACEHOLDERS
 // ==========================================
-#define OFFSET_NO_RECOIL       0x0000000 
-#define OFFSET_FAST_SWAP       0x0000000 
-#define OFFSET_FAST_RELOAD     0x0000000 
-#define OFFSET_TELEPORT        0x0000000 
+// පහත තියෙන 0x0000000 වෙනුවට ඔයා හොයාගත්ත හරියටම Offsets දාන්න.
 
-#define OFFSET_AIMBOT_LOCK     0x0000000 
-#define OFFSET_SILENT_AIM      0x0000000
-#define OFFSET_CAMERA_FOV      0x0000000
-#define OFFSET_ESP_BONE        0x0000000
+// --- MISC HACKS OFFSETS (Memory Patch කරන ඒවා) ---
+#define OFFSET_NO_RECOIL       0x0000000 // No Recoil Offset එක මෙතන දාන්න
+#define OFFSET_FAST_SWAP       0x0000000 // Fast Swap Weapon Offset එක
+#define OFFSET_FAST_RELOAD     0x0000000 // Fast Reload Offset එක
+#define OFFSET_TELEPORT        0x0000000 // Teleport Enemies Offset එක
+
+// --- AIMBOT OFFSETS (Memory Patch කරන ඒවා) ---
+#define OFFSET_AIMBOT_LOCK     0x0000000 // Vector Aim (Aimbot Lock) Offset එක
+#define OFFSET_SILENT_AIM      0x0000000 // Silent Aimbot Offset එක (උණ්ඩය ඉබේම වදින)
+
+// --- ESP & VISUALS OFFSETS ---
+// සටහන: ESP (Box, Line, Skeleton) වැඩ කරන්නේ Hex Patch කරලා නෙවෙයි. 
+// ඒවට UWorld, ViewMatrix වගේ දේවල් Memory එකෙන් Read කරන්න ඕන. ඒවට අදාල Offsets තමයි මේ.
+#define OFFSET_UWORLD          0x0000000 // UWorld / GWorld Offset එක
+#define OFFSET_VIEW_MATRIX     0x0000000 // ViewMatrix Offset එක (3D to 2D screen කරන්න)
+#define OFFSET_ENTITY_LIST     0x0000000 // Enemy Entity List / PersistentLevel Offset එක
+#define OFFSET_LOCAL_PLAYER    0x0000000 // Local Player Offset එක
+#define OFFSET_ESP_BONE        0x0000000 // Skeleton ESP සඳහා Bone Array Offset එක
+#define OFFSET_CAMERA_FOV      0x0000000 // FOV වෙනස් කරන Offset එක
 
 // ==========================================
 // SAFE MEMORY PATCHING FUNCTIONS 
@@ -83,20 +95,15 @@ void safePatchMemory(uintptr_t address, const uint8_t* bytes, size_t size) {
 }
 
 // ==========================================
-// CLEAN SHADOW TEXT RENDERER (Replacing the ugly 3D text)
+// CLEAN SHADOW TEXT RENDERER 
 // ==========================================
 static void DrawCleanShadowText(ImDrawList* drawList, ImVec2 pos, const char* text, ImVec4 color, float fontSize, ImFont* font) {
     ImGui::PushFont(font);
-    // Draw Shadow
     drawList->AddText(ImVec2(pos.x + 1.5f, pos.y + 1.5f), ImColor(0, 0, 0, 200), text);
-    // Draw Text
     drawList->AddText(pos, ImColor(color.x, color.y, color.z, color.w), text);
     ImGui::PopFont();
 }
 
-// ==========================================
-// SECURE STRINGS (Basic Base64 decoder)
-// ==========================================
 NSString* DecodeBase64(NSString* encodedString) {
     NSData *decodedData = [[NSData alloc] initWithBase64EncodedString:encodedString options:0];
     return [[NSString alloc] initWithData:decodedData encoding:NSUTF8StringEncoding];
@@ -125,7 +132,7 @@ static bool aimbotEnable = false;
 static int selectedAimConfig = 0; 
 static int selectedAimMethod = 0; 
 static bool showFovCircle = false;
-static float fovCircleColor[4] = {0.45f, 0.28f, 0.85f, 1.00f}; // Default nice purple
+static float fovCircleColor[4] = {0.45f, 0.28f, 0.85f, 1.00f}; 
 static bool ignoreKnocked = false;
 static bool forceLock = false;
 static int selectedHitbox = 0; 
@@ -149,8 +156,7 @@ static bool fastSwap = false;
 static bool fastReload = false;
 static bool teleportEnemies = false;
 
-// Modern Default Theme Colors
-static float menuAccentColor[4] = {0.45f, 0.28f, 0.85f, 1.00f}; // Purple accent
+static float menuAccentColor[4] = {0.45f, 0.28f, 0.85f, 1.00f}; 
 static float menuTransparency = 0.95f;
 
 static UITextField *hiddenTextField = nil;
@@ -158,25 +164,44 @@ static UITextField *hiddenTextField = nil;
 // ==========================================
 // 2. APPLY HACKS LOGIC (WITH HEX CODES)
 // ==========================================
+// මේ කොටසේ තමයි ඔයාගේ Menu එකේ Buttons ON/OFF කරද්දි Hex Code වෙනස් වෙන්නේ.
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
 
-    // --- AIMBOT LOGIC ---
+    // --- 1. AIMBOT LOGIC ---
     static bool lastMasterAim = false;
     static bool lastAimEnable = false;
     static int lastAimMethod = -1;
 
     if (masterAimbot && aimbotEnable) {
         if (!lastMasterAim || !lastAimEnable || lastAimMethod != selectedAimMethod) {
+            
             if (selectedAimMethod == 0) {
+                // SILENT AIMBOT
                 uintptr_t addr = getLocalRealOffset(OFFSET_SILENT_AIM);
+                // පහත { ... } ඇතුලේ Silent Aim එක ON කරන අලුත් Hex Code එක දාන්න
                 const uint8_t patch[] = { 0x20, 0x00, 0x80, 0xD2 }; 
                 safePatchMemory(addr, patch, sizeof(patch));
             } else {
+                // VECTOR AIM (LOCK)
                 uintptr_t addr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
+                // පහත { ... } ඇතුලේ Aimbot Lock එක ON කරන අලුත් Hex Code එක දාන්න
                 const uint8_t patch[] = { 0x00, 0x01, 0x80, 0xD2 };
                 safePatchMemory(addr, patch, sizeof(patch));
             }
+        }
+    } else if (lastMasterAim && lastAimEnable && (!masterAimbot || !aimbotEnable)) {
+        // AIMBOT එක OFF කරද්දි Original Code එක Restore වෙන්න ඕන නම් මේක පාවිච්චි කරන්න
+        if (lastAimMethod == 0) {
+            uintptr_t addr = getLocalRealOffset(OFFSET_SILENT_AIM);
+            // Silent Aim OFF කරද්දි ආපහු හැදෙන්න ඕන Original Game Hex එක දාන්න
+            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; // (වෙනස් කරන්න)
+            safePatchMemory(addr, restore, sizeof(restore));
+        } else {
+            uintptr_t addr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
+            // Aimbot Lock OFF කරද්දි ආපහු හැදෙන්න ඕන Original Game Hex එක දාන්න
+            const uint8_t restore[] = { 0x00, 0x00, 0x00, 0x00 }; // (වෙනස් කරන්න)
+            safePatchMemory(addr, restore, sizeof(restore));
         }
     }
     
@@ -184,59 +209,72 @@ void UpdateHacks() {
     lastAimEnable = aimbotEnable;
     lastAimMethod = selectedAimMethod;
 
-    // --- MISC HACKS LOGIC ---
+    // --- 2. NO RECOIL ---
     static bool lastNoRecoil = false;
     if (noRecoil != lastNoRecoil) {
         uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
         if (noRecoil) {
+            // No Recoil ON කරද්දි වදින්න ඕන Hex Code එක
             const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
+            // No Recoil OFF කරද්දි ආපහු හැදෙන්න ඕන Original Hex Code එක
             const uint8_t restore[] = { 0xFF, 0x43, 0x00, 0xD1 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastNoRecoil = noRecoil;
     }
 
+    // --- 3. FAST SWAP ---
     static bool lastFastSwap = false;
     if (fastSwap != lastFastSwap) {
         uintptr_t addr = getLocalRealOffset(OFFSET_FAST_SWAP);
         if (fastSwap) {
+            // Fast Swap ON කරද්දි වදින්න ඕන Hex Code එක
             const uint8_t patch[] = { 0x00, 0x00, 0x80, 0xD2 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
+            // Fast Swap OFF කරද්දි ආපහු හැදෙන්න ඕන Original Hex Code එක
             const uint8_t restore[] = { 0xF4, 0x4F, 0x01, 0xA9 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastSwap = fastSwap;
     }
 
+    // --- 4. FAST RELOAD ---
     static bool lastFastReload = false;
     if (fastReload != lastFastReload) {
         uintptr_t addr = getLocalRealOffset(OFFSET_FAST_RELOAD);
         if (fastReload) {
+            // Fast Reload ON කරද්දි වදින්න ඕන Hex Code එක
             const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
+            // Fast Reload OFF කරද්දි ආපහු හැදෙන්න ඕන Original Hex Code එක
             const uint8_t restore[] = { 0xFD, 0x7B, 0x01, 0xA9 }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastReload = fastReload;
     }
 
+    // --- 5. TELEPORT ENEMIES ---
     static bool lastTeleport = false;
     if (teleportEnemies != lastTeleport) {
         uintptr_t addr = getLocalRealOffset(OFFSET_TELEPORT);
         if (teleportEnemies) {
+            // Teleport ON කරද්දි වදින්න ඕන Hex Code එක
             const uint8_t patch[] = { 0xE0, 0x03, 0x27, 0x1E }; 
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
+            // Teleport OFF කරද්දි ආපහු හැදෙන්න ඕන Original Hex Code එක
             const uint8_t restore[] = { 0xE0, 0x03, 0x00, 0xAA }; 
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastTeleport = teleportEnemies;
     }
 }
+
+// ... පහළ තියෙන Menu UI Code එක කිසිම වෙනසක් කරලා නැහැ ... 
 
 const char* GetClipboardTextFn(void* user_data) {
     UIPasteboard *pasteboard = [UIPasteboard generalPasteboard];
@@ -417,27 +455,21 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     [self tryAutoLogin];
 }
 
-// ==========================================
-// FULLY FIXED STREAM PROOF TOGGLE (Rebuilds the TextField)
-// ==========================================
 - (void)updateStreamProofState {
     if (self.secureContainerField.secureTextEntry == streamProof) {
         isStreamProofUpdating = false;
         return;
     }
     
-    // Safely remove existing views
     [self.mtkViewObj removeFromSuperview];
     [self.secureContainerField removeFromSuperview];
     
-    // Completely recreate the TextField to force iOS to apply the new secure layer state correctly
     self.secureContainerField = [[UITextField alloc] initWithFrame:self.view.bounds];
     self.secureContainerField.backgroundColor = [UIColor clearColor];
     self.secureContainerField.secureTextEntry = streamProof;
     self.secureContainerField.userInteractionEnabled = NO;
     [self.view addSubview:self.secureContainerField];
     
-    // Re-attach MTKView
     UIView *secureLayer = self.secureContainerField.subviews.firstObject ?: self.secureContainerField;
     [secureLayer addSubview:self.mtkViewObj];
     
@@ -490,9 +522,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
 - (void)touchesCancelled:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event { [self updateIOWithTouchEvent:event]; }
 
-// ==========================================
-// RENDER LOOP (MODERN CLEAN UI IMPLEMENTATION)
-// ==========================================
 - (void)drawInMTKView:(MTKView*)view {
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize.x = view.bounds.size.width;
@@ -532,7 +561,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         ImGui_ImplMetal_NewFrame(renderPassDescriptor);
         ImGui::NewFrame();
         
-        // --- MODERN SLEEK THEME ---
         ImGuiStyle* style = &ImGui::GetStyle();
         style->WindowRounding = 8.0f;       
         style->FrameRounding = 5.0f;        
@@ -562,7 +590,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         colors[ImGuiCol_ButtonHovered]          = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.90f);
         colors[ImGuiCol_ButtonActive]           = ImVec4(customAccent.x - 0.1f, customAccent.y - 0.1f, customAccent.z - 0.1f, 1.0f);
         
-        // Tab Colors
         colors[ImGuiCol_Tab]                    = ImVec4(0.15f, 0.15f, 0.17f, 1.00f);
         colors[ImGuiCol_TabHovered]             = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.80f);
         colors[ImGuiCol_TabActive]              = customAccent;
@@ -588,7 +615,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
             
-            // Clean Top Header bar
             drawList->AddRectFilled(pos, ImVec2(pos.x + loginWidth, pos.y + 55), ImColor(18, 18, 22, 255), 8.0f, ImDrawFlags_RoundCornersTop);
             drawList->AddLine(ImVec2(pos.x, pos.y + 55), ImVec2(pos.x + loginWidth, pos.y + 55), ImColor(customAccent.x, customAccent.y, customAccent.z, 1.0f), 2.0f);
             
@@ -656,7 +682,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImDrawList* drawList = ImGui::GetWindowDrawList();
             ImVec2 pos = ImGui::GetWindowPos();
             
-            // Clean Modern Header
             drawList->AddRectFilled(pos, ImVec2(pos.x + menuWidth, pos.y + 50), ImColor(18, 18, 22, 255), 8.0f, ImDrawFlags_RoundCornersTop);
             drawList->AddLine(ImVec2(pos.x, pos.y + 50), ImVec2(pos.x + menuWidth, pos.y + 50), ImColor(customAccent.x, customAccent.y, customAccent.z, 1.0f), 2.0f);
             
@@ -670,7 +695,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
             ImGui::SetCursorPosY(55);
             ImGui::Spacing();
             
-            // TAB SYSTEM (Replaced Columns)
             if (ImGui::BeginTabBar("MenuTabs")) {
                 
                 if (ImGui::BeginTabItem("Aimbot")) {
@@ -757,7 +781,6 @@ void SetClipboardTextFn(void* user_data, const char* text) {
                     
                     ImGui::Spacing(); ImGui::Separator(); ImGui::Spacing();
                     
-                    // Fixed Stream Proof Toggle
                     ImGui::Checkbox("Stream Proof (Hide Screen Recording)", &streamProof);
                     
                     ImGui::Spacing();
