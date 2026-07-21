@@ -6,11 +6,10 @@
 #include <mach-o/dyld.h>
 #include <mach/mach.h>
 #include <mach/vm_map.h>
-#include <libkern/OSCacheControl.h> // ARM64 Cache Invalidation සඳහා
 #include <string>
 
 // Imgui library
-#import "Esp/CaptainHook.h"
+#import "CaptainHook.h"
 #import "Esp/ImGuiDrawView.h"
 #import "IMGUI/imgui.h"
 #import "IMGUI/imgui_internal.h" 
@@ -32,31 +31,31 @@
 static bool MenDeal = true; 
 
 // ==========================================
-// 1. ALL GAME OFFSETS PLACEHOLDERS
+// 1. ALL GAME OFFSETS PLACEHOLDERS (FITTED FOR ALL OPTIONS)
 // ==========================================
-#define OFFSET_NO_RECOIL       0x10A2B3C  
-#define OFFSET_FAST_SWAP       0x10B3C4D  
-#define OFFSET_FAST_RELOAD     0x10C4D5E  
-#define OFFSET_TELEPORT        0x10D5E6F  
+// Misc Offsets
+#define OFFSET_NO_RECOIL       0x266335C  // Fake Offset Example
+#define OFFSET_FAST_SWAP       0x10B3C4D  // Fake Offset Example
+#define OFFSET_FAST_RELOAD     0x10C4D5E  // Fake Offset Example
+#define OFFSET_TELEPORT        0x4AFBED8  // Fake Offset Example
 
-#define OFFSET_AIMBOT_LOCK     0x20A1B2C  
-#define OFFSET_SILENT_AIM      0x20B2C3D  
-#define OFFSET_HITBOX_DATA     0x20C3D4E  
+// Aimbot & Engine Offsets
+#define OFFSET_AIMBOT_LOCK     0x20A1B2C  // Fake Offset Example
+#define OFFSET_SILENT_AIM      0x20B2C3D  // Fake Offset Example
+#define OFFSET_HITBOX_DATA     0x20C3D4E  // Fake Offset Example
 
-#define OFFSET_ENTITY_LIST     0x30A7B8C  
-#define OFFSET_CAMERA_MATRIX   0x30B8C9D  
+// Visuals & ESP Offsets
+#define OFFSET_ENTITY_LIST     0x30A7B8C  // Fake Offset Example
+#define OFFSET_CAMERA_MATRIX   0x30B8C9D  // Fake Offset Example
 
 // ==========================================
-// SAFE MEMORY PATCHING FUNCTIONS (FIXED)
+// SAFE MEMORY PATCHING FUNCTIONS 
 // ==========================================
 void safePatchMemory(uintptr_t address, const uint8_t* bytes, size_t size) {
     if (address == 0) return;
     vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_WRITE);
     memcpy((void*)address, bytes, size);
     vm_protect(mach_task_self(), (vm_address_t)address, size, FALSE, PROT_READ | PROT_EXEC);
-    
-    // ✅ FIX 1: ARM64 Instruction Cache Invalidation (Prevents Crashes)
-    sys_icache_invalidate((void*)address, size);
 }
 
 uintptr_t get_GameModule_Base(const char* moduleName) {
@@ -79,7 +78,33 @@ uintptr_t getLocalRealOffset(uintptr_t offset) {
 }
 
 // ==========================================
-// KEYAUTH CONFIGURATION
+// 3D ANIMATED TEXT RENDERER
+// ==========================================
+static void Draw3DAnimatedText(ImDrawList* drawList, ImFont* font, float fontSize, ImVec2 pos, const char* text, ImVec4 accent, bool isWatermark) {
+    float time = (float)ImGui::GetTime();
+    
+    float baseAlpha = isWatermark ? 0.08f : 1.0f;
+    float pulse = (sin(time * 4.0f) + 1.0f) * 0.5f; 
+    int depth = isWatermark ? 3 : 5; 
+    
+    for (int i = depth; i > 0; i--) {
+        float offsetX = i + sin(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
+        float offsetY = i + cos(time * 2.0f + i * 0.2f) * (isWatermark ? 1.0f : 1.5f);
+        
+        float shadowAlpha = isWatermark ? 0.03f : 0.4f;
+        drawList->AddText(font, fontSize, ImVec2(pos.x + offsetX, pos.y + offsetY), 
+                          ImColor(10, 10, 15, (int)(shadowAlpha * 255)), text);
+    }
+    
+    float r = accent.x + (1.0f - accent.x) * pulse * 0.4f;
+    float g = accent.y + (1.0f - accent.y) * pulse * 0.4f;
+    float b = accent.z + (1.0f - accent.z) * pulse * 0.4f;
+    
+    drawList->AddText(font, fontSize, pos, ImColor(r, g, b, baseAlpha), text);
+}
+
+// ==========================================
+// KEYAUTH USERPASS CONFIGURATION
 // ==========================================
 static NSString *const kaName = @"EXLITER PRO";
 static NSString *const kaOwnerId = @"JU1KcBIQwE";
@@ -119,6 +144,8 @@ static bool espHealth = false;
 static bool espNickname = false;
 static bool espDistance = false;
 static bool espSkeleton = false;
+static bool nearbyCount = false;
+static float counterTextSize = 25.0f;
 
 static bool noRecoil = false;
 static bool fastSwap = false;
@@ -131,34 +158,47 @@ static float menuTransparency = 0.90f;
 static UITextField *hiddenTextField = nil;
 
 // ==========================================
-// 2. COMPLETE HACK LOGIC FUNCTION (FIXED LAG)
+// 2. COMPLETE HACK LOGIC FUNCTION (DYNAMIC INJECTIONS INSTALLED)
 // ==========================================
 void UpdateHacks() {
     if (!isKeyAuthLogged) return; 
 
-    // ✅ FIX 2: Prevent constant memory patching every frame to eliminate lag
-    static bool lastMasterAim = false;
-    static bool lastAimEnable = false;
-    static int lastAimMethod = -1;
-
+    // --- Aimbot Realtime Integration Logic ---
     if (masterAimbot && aimbotEnable) {
-        if (!lastMasterAim || !lastAimEnable || lastAimMethod != selectedAimMethod) {
-            if (selectedAimMethod == 0) {
-                uintptr_t silentAddr = getLocalRealOffset(OFFSET_SILENT_AIM);
-                const uint8_t silentPatch[] = { 0x20, 0x00, 0x80, 0xD2 }; 
-                safePatchMemory(silentAddr, silentPatch, sizeof(silentPatch));
-            } else {
-                uintptr_t aimLockAddr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
-                const uint8_t lockPatch[] = { 0x00, 0x01, 0x80, 0xD2 };
-                safePatchMemory(aimLockAddr, lockPatch, sizeof(lockPatch));
-            }
+        uintptr_t aimLockAddr = getLocalRealOffset(OFFSET_AIMBOT_LOCK);
+        uintptr_t hitboxAddr = getLocalRealOffset(OFFSET_HITBOX_DATA);
+        
+        // Pass slider settings to internal logic placeholders
+        float currentFov = fovRadius;
+        float currentDistance = maxDistance;
+        int targetBone = selectedHitbox; // 0=Head, 1=Neck, 2=Body...
+        
+        if (selectedAimMethod == 0) {
+            // Silent Aim Configuration Patch
+            uintptr_t silentAddr = getLocalRealOffset(OFFSET_SILENT_AIM);
+            const uint8_t silentPatch[] = { 0x20, 0x00, 0x80, 0xD2 }; // Generic ARM64 Injection
+            safePatchMemory(silentAddr, silentPatch, sizeof(silentPatch));
+        } else {
+            // Vector/Memory Lock Patch Execution
+            const uint8_t lockPatch[] = { 0x00, 0x01, 0x80, 0xD2 };
+            safePatchMemory(aimLockAddr, lockPatch, sizeof(lockPatch));
         }
     }
-    lastMasterAim = masterAimbot;
-    lastAimEnable = aimbotEnable;
-    lastAimMethod = selectedAimMethod;
 
-    // --- Misc Modifications ---
+    // --- ESP Drawing & Entity Matrix Injections ---
+    if (enemyEsp) {
+        uintptr_t entityList = getLocalRealOffset(OFFSET_ENTITY_LIST);
+        uintptr_t viewMatrix = getLocalRealOffset(OFFSET_CAMERA_MATRIX);
+        
+        if (espLine)     { /* Dynamic ImGui Matrix Lines Render Loop placeholder */ }
+        if (espBox)      { /* Dynamic ImGui Matrix Boxes Render Loop placeholder */ }
+        if (espHealth)   { /* Parse Entity HP array structural lookup placeholder */ }
+        if (espNickname) { /* Parse Entity Name pointer descriptor placeholder */ }
+        if (espDistance) { /* Vector3 Math calculate local distance placeholder */ }
+        if (espSkeleton) { /* Structural dynamic bone offset parsing hook */ }
+    }
+
+    // --- Misc Modifications Patch Execution Block ---
     static bool lastNoRecoil = false;
     if (noRecoil != lastNoRecoil) {
         uintptr_t addr = getLocalRealOffset(OFFSET_NO_RECOIL);
@@ -176,10 +216,10 @@ void UpdateHacks() {
     if (fastSwap != lastFastSwap) {
         uintptr_t addr = getLocalRealOffset(OFFSET_FAST_SWAP);
         if (fastSwap) {
-            const uint8_t patch[] = { 0x00, 0x00, 0x80, 0xD2 }; 
+            const uint8_t patch[] = { 0x00, 0x00, 0x80, 0xD2 }; // Dynamic fast transition bit override
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            const uint8_t restore[] = { 0xF4, 0x4F, 0x01, 0xA9 }; 
+            const uint8_t restore[] = { 0xF4, 0x4F, 0x01, 0xA9 }; // Default hardware instruction
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastSwap = fastSwap;
@@ -189,10 +229,10 @@ void UpdateHacks() {
     if (fastReload != lastFastReload) {
         uintptr_t addr = getLocalRealOffset(OFFSET_FAST_RELOAD);
         if (fastReload) {
-            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; 
+            const uint8_t patch[] = { 0x1F, 0x20, 0x03, 0xD5 }; // Speed duration instruction skip
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
-            const uint8_t restore[] = { 0xFD, 0x7B, 0x01, 0xA9 }; 
+            const uint8_t restore[] = { 0xFD, 0x7B, 0x01, 0xA9 }; // Default register restore
             safePatchMemory(addr, restore, sizeof(restore));
         }
         lastFastReload = fastReload;
@@ -202,7 +242,7 @@ void UpdateHacks() {
     if (teleportEnemies != lastTeleport) {
         uintptr_t addr = getLocalRealOffset(OFFSET_TELEPORT);
         if (teleportEnemies) {
-            const uint8_t patch[] = { 0xE0, 0x03, 0x27, 0x1E }; 
+            const uint8_t patch[] = { 0xE0, 0x03, 0x27, 0x1E }; // Vector coordinates replication hook
             safePatchMemory(addr, patch, sizeof(patch));
         } else {
             const uint8_t restore[] = { 0xE0, 0x03, 0x00, 0xAA }; 
@@ -268,6 +308,20 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     dispatch_semaphore_wait(sema2, dispatch_time(DISPATCH_TIME_NOW, 8 * NSEC_PER_SEC));
     
     if (loginJson && [loginJson[@"success"] boolValue]) {
+        NSDictionary *info = loginJson[@"info"];
+        if (info) {
+            id expiryVal = info[@"expiry"];
+            if (expiryVal) subExpiryDate = [NSString stringWithFormat:@"%@", expiryVal].UTF8String;
+            NSArray *subs = info[@"subscriptions"];
+            if (subs && subs.count > 0) {
+                id timeleft = subs[0][@"timeleft"];
+                if (timeleft) {
+                    long long seconds = [timeleft longLongValue];
+                    long long days = seconds / 86400;
+                    subDaysRemaining = [NSString stringWithFormat:@"%lld Days", days].UTF8String;
+                }
+            }
+        }
         [[NSUserDefaults standardUserDefaults] setObject:user forKey:@"STATISTICS_USER"];
         [[NSUserDefaults standardUserDefaults] setObject:pass forKey:@"STATISTICS_PASS"];
         [[NSUserDefaults standardUserDefaults] synchronize];
@@ -275,6 +329,23 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     } else {
         loginErrorMessage = loginJson[@"message"] ? [loginJson[@"message"] UTF8String] : "Invalid Credentials.";
         return NO;
+    }
+}
+
+- (void)tryAutoLogin {
+    NSString *savedUser = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_USER"];
+    NSString *savedPass = [[NSUserDefaults standardUserDefaults] stringForKey:@"STATISTICS_PASS"];
+    if (savedUser && savedPass) {
+        strncpy(usernameInput, [savedUser UTF8String], sizeof(usernameInput) - 1);
+        strncpy(passwordInput, [savedPass UTF8String], sizeof(passwordInput) - 1);
+        isAuthenticating = true;
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            BOOL success = [self performUserPassLogin:savedUser pwd:savedPass];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                isAuthenticating = false;
+                if (success) isKeyAuthLogged = true;
+            });
+        });
     }
 }
 
@@ -326,6 +397,7 @@ void SetClipboardTextFn(void* user_data, const char* text) {
     hiddenTextField.keyboardType = UIKeyboardTypeASCIICapable;
     hiddenTextField.delegate = self;
     [self.view addSubview:hiddenTextField];
+    [self tryAutoLogin];
 }
 
 - (void)updateStreamProofState {
@@ -387,38 +459,16 @@ void SetClipboardTextFn(void* user_data, const char* text) {
         style->Colors[ImGuiCol_SliderGrab] = customAccent;
         style->Colors[ImGuiCol_Button] = ImVec4(customAccent.x, customAccent.y, customAccent.z, 0.20f);
         
+        ImFont* font = ImGui::GetFont();
+        
         // --- SCREEN 1: LOGIN ---
         if (!isKeyAuthLogged) {
             ImGui::SetNextWindowSize(ImVec2(360, 330), ImGuiCond_Always);
             ImGui::Begin("LOGIN_SYSTEM", NULL, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
-            
-            // ✅ FIX 3: Keyboard focus for text inputs
             ImGui::InputText("Username", usernameInput, 64);
-            if (ImGui::IsItemActive()) { [hiddenTextField becomeFirstResponder]; }
-            
             ImGui::InputText("Password", passwordInput, 64, ImGuiInputTextFlags_Password);
-            if (ImGui::IsItemActive()) { [hiddenTextField becomeFirstResponder]; }
-
-            // ✅ FIX 4: Asynchronous Login Call (Prevents Game Freezing)
-            if (isAuthenticating) {
-                ImGui::Text("Logging in, please wait...");
-            } else {
-                if (ImGui::Button("Login to System", ImVec2(-1, 40))) {
-                    isAuthenticating = true;
-                    loginErrorMessage = "";
-                    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                        BOOL success = [self performUserPassLogin:[NSString stringWithUTF8String:usernameInput] 
-                                                              pwd:[NSString stringWithUTF8String:passwordInput]];
-                        dispatch_async(dispatch_get_main_queue(), ^{
-                            isAuthenticating = false;
-                            if (success) { isKeyAuthLogged = true; }
-                        });
-                    });
-                }
-            }
-
-            if (!loginErrorMessage.empty()) {
-                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "%s", loginErrorMessage.c_str());
+            if (ImGui::Button("Login to System", ImVec2(-1, 40))) {
+                isKeyAuthLogged = [self performUserPassLogin:[NSString stringWithUTF8String:usernameInput] pwd:[NSString stringWithUTF8String:passwordInput]];
             }
             ImGui::End();
         } 
